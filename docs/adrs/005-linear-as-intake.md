@@ -1,7 +1,7 @@
 # ADR-005: Linear as the Intake Layer
 
 ## Status
-Accepted
+**Superseded** by [ADR-007: beads Replaces Linear](007-beads-replaces-linear.md)
 
 ## Context
 Need a task management system that serves as the single entry point for all work. Options:
@@ -37,3 +37,13 @@ Linear as the primary intake mechanism.
 
 ## Escape Hatch
 `just run-direct` command bypasses Linear entirely for quick one-off agent runs. This ensures the system works without Linear for testing and emergencies.
+
+## Why This Was Superseded
+beads (br) provides agent-first, CLI-native issue tracking with:
+- Local SQLite + JSONL (zero network dependency)
+- `br ready` returns exactly what we need without polling an API
+- Dependencies with `br dep` enforce TB ordering natively
+- No paid service, no rate limits, no API keys
+- Version-controlled issue state in `.beads/`
+
+See [ADR-007](007-beads-replaces-linear.md) for full rationale.

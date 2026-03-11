@@ -6,11 +6,11 @@ dev-loop is a closed-loop developer tooling harness. The output of every stage f
 
 ```
                     ┌─────────────────────┐
-                    │   LINEAR (Intake)    │
-                    │  tickets, sprints,   │
+                    │   BEADS (Intake)     │
+                    │  issues, deps,       │
                     │  DORA metrics        │
                     └──────────┬──────────┘
-                               │ webhook / poll
+                               │ poll (br ready)
                     ┌──────────▼──────────┐
                     │   ORCHESTRATION      │
                     │  dmux (worktrees)    │
@@ -28,11 +28,10 @@ dev-loop is a closed-loop developer tooling harness. The output of every stage f
                                │ output (diff, PR, artifact)
                     ┌──────────▼──────────┐
                     │   QUALITY GATES      │
-                    │  CodeRabbit (review) │
-                    │  Aikido (security)   │
-                    │  DeepEval (LLM eval) │
+                    │  DeepEval (review)   │
+                    │  VibeForge (security)│
+                    │  gitleaks (secrets)  │
                     │  ATDD (acceptance)   │
-                    │  secret scan         │
                     └──────────┬──────────┘
                                │ pass/fail + traces
                     ┌──────────▼──────────┐
@@ -40,7 +39,6 @@ dev-loop is a closed-loop developer tooling harness. The output of every stage f
                     │  OTel spans          │
                     │  OpenObserve (store) │
                     │  AgentLens (replay)  │
-                    │  OneUptime (alerts)  │
                     │  DORA dashboards     │
                     └──────────┬──────────┘
                                │ signals
@@ -51,10 +49,11 @@ dev-loop is a closed-loop developer tooling harness. The output of every stage f
                     │  changelog gen       │
                     │  cost alerts         │
                     │  cross-repo cascade  │
+                    │  step efficiency     │
                     └──────────┬──────────┘
                                │
                                ▼
-                         back to LINEAR
+                         back to BEADS
 ```
 
 ## Integration Boundaries
@@ -75,7 +74,7 @@ Layer 1 ──MCP──► Layer 2 ──MCP──► Layer 3
 
 ```
 dev-loop (this repo)
-├── shared MCP servers (Linear, OpenObserve, cost-proxy)
+├── shared MCP servers (beads-intake, OpenObserve, cost-proxy)
 ├── shared CLAUDE.md template
 └── per-project overrides
 
@@ -92,52 +91,57 @@ project-b/
 
 Each project gets:
 - Its own worktree per agent run (via dmux)
-- Its own Linear project/labels
+- Its own beads labels and issue prefix
 - Its own quality gate thresholds (some repos need stricter security)
 - Shared observability (all traces go to the same OpenObserve instance)
 - Shared cost budget (with per-project breakdown)
 
-## Data Flow for One Tracer Bullet (TB-1: Ticket-to-PR)
+## Data Flow for One Tracer Bullet (TB-1: Issue-to-PR)
 
 ```
-1. Linear ticket moves to "Ready" status
-2. Webhook hits dev-loop intake MCP server
+1. beads issue is ready (br ready returns it — no blockers, no deferred)
+2. Intake MCP server picks it up via polling
 3. Intake creates OTel span: trace_id=T, span=intake
 4. Orchestration layer:
-   a. Reads ticket metadata (repo, description, labels)
+   a. Reads issue metadata (repo, description, labels)
    b. Runs dmux to create isolated worktree + branch
    c. Selects agent config based on labels (bug fix, feature, refactor)
    d. Creates OTel span: trace_id=T, span=orchestration
 5. Agent runtime:
-   a. OpenFang sandbox initialized with scoped capabilities
+   a. OpenFang sandbox initialized with scoped capabilities (TB-3+, CLAUDE.md scoping for TB-1)
    b. Agent loads context from Letta/Continuous-Claude context repo
    c. Agent works in worktree (reads code, makes changes)
    d. Token proxy logs every LLM call with project_id, task_id
    e. Creates OTel span: trace_id=T, span=agent_runtime
-6. Quality gates (sequential):
-   a. ATDD — run acceptance tests if spec exists
-   b. CodeRabbit CLI — review the diff
-   c. Aikido — security scan the diff
-   d. Secret scanner — check for leaked credentials
-   e. Each gate creates OTel span with pass/fail
+6. Quality gates (sequential, fail-fast):
+   a. Gate 0: Sanity — compile + test
+   b. Gate 0.5: Relevance — LLM-as-judge checks diff vs issue
+   c. Gate 1: ATDD — run acceptance tests if spec exists
+   d. Gate 2: Secrets — gitleaks on the diff
+   e. Gate 2.5: Dangerous ops — migration/CI/auth detection
+   f. Gate 3: Security — VibeForge Scanner + npm/pip audit
+   g. Gate 4: Review — DeepEval LLM-as-judge code review
+   h. Gate 5: Cost — budget check
+   i. Each gate creates OTel span with pass/fail
 7. Observability:
    a. All spans arrive in OpenObserve
    b. AgentLens captures full agent session for replay
    c. DORA metrics updated (lead time clock started at step 1)
 8. Outcome routing:
-   a. ALL GATES PASS → PR created, Linear ticket → "In Review"
+   a. ALL GATES PASS → PR created, beads issue → closed
    b. ANY GATE FAILS → failure trace sent to feedback loop
 9. Feedback loop (on failure):
    a. Parse failure reason from quality gate spans
    b. Feed error context back to agent
    c. Agent retries (max 2 retries, then escalate to human)
    d. On retry success → back to step 6
-   e. On retry exhaustion → Linear ticket → "Blocked", human notified
+   e. On retry exhaustion → beads issue → blocked, human notified
 ```
 
 ## Key Constraints
 
 - **No shared mutable state between agents.** Worktree isolation is mandatory.
-- **Every tool is bypassable.** `just tb1 --skip-security` skips Aikido. `just tb1 --skip-review` skips CodeRabbit. The loop still runs.
+- **Every tool is bypassable.** `just tb1 --skip-security` skips VibeForge. `just tb1 --skip-review` skips DeepEval review. The loop still runs.
 - **Cost ceiling per run.** Token proxy enforces a hard limit. Agent is killed if it exceeds budget. Configurable per project.
 - **Human-in-the-loop by default.** PRs require human merge. Auto-merge is opt-in per project after trust is established.
+- **100% open source.** Every tool in the stack is open source or built in-house. The only external dependency is the Anthropic API.

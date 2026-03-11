@@ -26,45 +26,50 @@ Threshold: 0.6 to include, 0.8 to be primary choice
 ### Layer 1: Intake
 | Tool | Setup | MCP | FP Rate | Maint | Multi-proj | Cost | Community | **Total** |
 |------|-------|-----|---------|-------|-----------|------|-----------|-----------|
-| Linear | ? | ? | N/A | ? | ? | ? | ? | **TBD** |
+| beads (br) | 5 | 5 | N/A | 5 | 3 | 5 (OSS) | 4 | **0.92** |
+| Beads-Kanban-UI | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
 
 ### Layer 2: Orchestration
 | Tool | Setup | MCP | FP Rate | Maint | Multi-proj | Cost | Community | **Total** |
 |------|-------|-----|---------|-------|-----------|------|-----------|-----------|
-| dmux | ? | ? | N/A | ? | ? | ? | ? | **TBD** |
-| Symphony | ? | ? | N/A | ? | ? | ? | ? | **TBD** |
+| dmux | 5 | 2 | N/A | 4 | 5 | 5 (OSS) | 3 | **0.80** |
+| Gastown | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
+| JAT | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
+| Symphony | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
 
 ### Layer 3: Runtime
 | Tool | Setup | MCP | FP Rate | Maint | Multi-proj | Cost | Community | **Total** |
 |------|-------|-----|---------|-------|-----------|------|-----------|-----------|
-| OpenFang | ? | ? | N/A | ? | ? | ? | ? | **TBD** |
-| zsh-tool MCP | ? | ? | ? | ? | ? | ? | ? | **TBD** |
-| Continuous-Claude-v3 | ? | ? | N/A | ? | ? | ? | ? | **TBD** |
-| Letta Context Repos | ? | ? | N/A | ? | ? | ? | ? | **TBD** |
+| OpenFang | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
+| zsh-tool MCP | ? | ? | ? | ? | ? | 5 (OSS) | ? | **TBD** |
+| Continuous-Claude-v3 | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
+| Letta Context Repos | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
+| Headroom | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
+| EnCompass | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
 
 ### Layer 4: Quality Gates
 | Tool | Setup | MCP | FP Rate | Maint | Multi-proj | Cost | Community | **Total** |
 |------|-------|-----|---------|-------|-----------|------|-----------|-----------|
-| CodeRabbit | ? | ? | ? | ? | ? | ? | ? | **TBD** |
-| Aikido | ? | ? | ? | ? | ? | ? | ? | **TBD** |
-| DeepEval | ? | ? | ? | ? | ? | ? | ? | **TBD** |
-| ATDD | ? | ? | ? | ? | ? | ? | ? | **TBD** |
+| DeepEval (LLM-as-judge) | 4 | 3 | 3 | 3 | 4 | 5 (OSS) | 5 | **0.73** |
+| VibeForge Scanner | ? | ? | ? | ? | ? | 5 (OSS) | ? | **TBD** |
+| gitleaks | 5 | 3 | 4 | 4 | 5 | 5 (OSS) | 5 | **0.86** |
+| ATDD | ? | ? | ? | ? | ? | 5 (OSS) | ? | **TBD** |
 
 ### Layer 5: Observability
 | Tool | Setup | MCP | FP Rate | Maint | Multi-proj | Cost | Community | **Total** |
 |------|-------|-----|---------|-------|-----------|------|-----------|-----------|
-| OpenObserve | ? | ? | N/A | ? | ? | ? | ? | **TBD** |
-| AgentLens | ? | ? | N/A | ? | ? | ? | ? | **TBD** |
-| OneUptime | ? | ? | ? | ? | ? | ? | ? | **TBD** |
+| OpenObserve | 4 | 4 | N/A | 3 | 5 | 5 (OSS) | 5 | **0.83** |
+| AgentLens | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
+| Agent Trace | ? | ? | N/A | ? | ? | 5 (OSS) | ? | **TBD** |
 
 ### Layer 6: Feedback Loop
 | Tool | Setup | MCP | FP Rate | Maint | Multi-proj | Cost | Community | **Total** |
 |------|-------|-----|---------|-------|-----------|------|-----------|-----------|
-| GitHub Agentic Workflows | ? | ? | N/A | ? | ? | ? | ? | **TBD** |
+| DeepEval Step Efficiency | ? | ? | ? | ? | ? | 5 (OSS) | ? | **TBD** |
 
 ## Scoring Process
 
-1. **Before TB-1**: Score all TB-1 tools (Linear, dmux, CodeRabbit, OpenObserve)
+1. **Before TB-1**: Score all TB-1 tools (beads, dmux, DeepEval, gitleaks, OpenObserve)
 2. **After TB-1**: Re-score based on real usage data
 3. **Before each TB**: Score any new tools that TB introduces
 4. **Monthly**: Re-score all tools based on accumulated experience

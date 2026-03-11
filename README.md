@@ -1,10 +1,12 @@
 # dev-loop
 
-A tracer-bullet-driven developer tooling harness that wires Linear tickets through agent orchestration, quality gates, observability, and feedback loops — across multiple projects.
+A tracer-bullet-driven developer tooling harness that wires beads issues through agent orchestration, quality gates, observability, and feedback loops — across multiple projects.
+
+**100% open-source tool stack. Zero paid services (beyond Anthropic API).**
 
 ## Philosophy
 
-**Tracer bullets, not horizontal layers.** Every feature cuts vertically through all six layers before we widen anything. The first tracer bullet is a single ticket flowing through the entire system end-to-end with visibility at every step.
+**Tracer bullets, not horizontal layers.** Every feature cuts vertically through all six layers before we widen anything. The first tracer bullet is a single issue flowing through the entire system end-to-end with visibility at every step.
 
 **Loop-first.** The system is a loop, not a pipeline. Every output feeds back as input. Failed PRs feed back to agents. Cost spikes feed back to throttles. Trace analysis feeds back to harness tuning.
 
@@ -13,19 +15,19 @@ A tracer-bullet-driven developer tooling harness that wires Linear tickets throu
 ## Layers
 
 ```
-LINEAR (intake) ──► ORCHESTRATION ──► AGENT RUNTIME ──► QUALITY GATES ──► OBSERVABILITY ──► FEEDBACK LOOP
+BEADS (intake) ──► ORCHESTRATION ──► AGENT RUNTIME ──► QUALITY GATES ──► OBSERVABILITY ──► FEEDBACK LOOP
      ▲                                                                                          │
      └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 | # | Layer | Core Tools | Doc |
 |---|-------|-----------|-----|
-| 1 | Intake | Linear | [docs/layers/01-intake.md](docs/layers/01-intake.md) |
-| 2 | Orchestration | dmux, Symphony, CC Workflow Studio | [docs/layers/02-orchestration.md](docs/layers/02-orchestration.md) |
-| 3 | Agent Runtime | OpenFang, zsh-tool MCP, Continuous-Claude-v3, Letta, Headroom | [docs/layers/03-runtime.md](docs/layers/03-runtime.md) |
-| 4 | Quality Gates | CodeRabbit, Aikido, DeepEval, ATDD, secret scanner | [docs/layers/04-quality-gates.md](docs/layers/04-quality-gates.md) |
-| 5 | Observability | OpenTelemetry, OpenObserve, AgentLens, OneUptime | [docs/layers/05-observability.md](docs/layers/05-observability.md) |
-| 6 | Feedback Loop | GitHub Agentic Workflows, harness tuning, changelog | [docs/layers/06-feedback-loop.md](docs/layers/06-feedback-loop.md) |
+| 1 | Intake | beads (br), Beads-Kanban-UI | [docs/layers/01-intake.md](docs/layers/01-intake.md) |
+| 2 | Orchestration | dmux, Gastown, JAT | [docs/layers/02-orchestration.md](docs/layers/02-orchestration.md) |
+| 3 | Agent Runtime | OpenFang, zsh-tool MCP, Continuous-Claude-v3, Letta, Headroom, EnCompass | [docs/layers/03-runtime.md](docs/layers/03-runtime.md) |
+| 4 | Quality Gates | DeepEval (LLM-as-judge), VibeForge Scanner, gitleaks, ATDD | [docs/layers/04-quality-gates.md](docs/layers/04-quality-gates.md) |
+| 5 | Observability | OpenTelemetry, OpenObserve, AgentLens | [docs/layers/05-observability.md](docs/layers/05-observability.md) |
+| 6 | Feedback Loop | DeepEval Step Efficiency, harness tuning, changelog | [docs/layers/06-feedback-loop.md](docs/layers/06-feedback-loop.md) |
 
 ## Tracer Bullets
 
@@ -33,7 +35,7 @@ See [docs/tracer-bullets.md](docs/tracer-bullets.md) for all vertical slices.
 
 | TB | Name | Status |
 |----|------|--------|
-| TB-1 | Ticket-to-PR (the golden path) | NOT STARTED |
+| TB-1 | Issue-to-PR (the golden path) | NOT STARTED |
 | TB-2 | Failure-to-retry (the feedback path) | NOT STARTED |
 | TB-3 | Security-gate-to-fix (the safety path) | NOT STARTED |
 | TB-4 | Cost-spike-to-pause (the budget path) | NOT STARTED |

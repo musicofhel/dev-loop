@@ -1,7 +1,9 @@
 # Layer 5: Observability
 
 ## Purpose
-See everything. Every ticket, every agent run, every tool call, every dollar spent, every gate result — visible in one place. Not just logging — tracing (causal chains), metrics (trends), and replay (debugging).
+See everything. Every issue, every agent run, every tool call, every dollar spent, every gate result — visible in one place. Not just logging — tracing (causal chains), metrics (trends), and replay (debugging).
+
+**All tools are open source. Zero paid services.**
 
 ## The Three Pillars + One
 
@@ -18,9 +20,9 @@ Every layer in dev-loop emits OTel spans. This is non-negotiable — if a layer 
 
 ### Span Hierarchy
 ```
-trace: T-abc123 (one per ticket)
-├── span: intake.ticket_pickup
-│   └── attributes: ticket.id, ticket.repo, ticket.labels
+trace: T-abc123 (one per issue)
+├── span: intake.issue_pickup
+│   └── attributes: issue.id, issue.repo, issue.labels
 ├── span: orchestration.setup
 │   └── attributes: agent.persona, worktree.branch, task.complexity
 ├── span: runtime.execution
@@ -31,8 +33,10 @@ trace: T-abc123 (one per ticket)
 │   └── attributes: total_tool_calls, total_tokens, total_cost
 ├── span: quality_gates.run_all
 │   ├── span: quality_gates.gate_0_sanity
+│   ├── span: quality_gates.gate_05_relevance
 │   ├── span: quality_gates.gate_1_atdd
 │   ├── span: quality_gates.gate_2_secrets
+│   ├── span: quality_gates.gate_25_dangerous_ops
 │   ├── span: quality_gates.gate_3_security
 │   ├── span: quality_gates.gate_4_review
 │   └── span: quality_gates.gate_5_cost
@@ -46,8 +50,8 @@ trace: T-abc123 (one per ticket)
 Custom attribute namespace: `devloop.*`
 
 ```
-devloop.ticket.id          # Linear ticket ID
-devloop.ticket.repo        # Target repository
+devloop.issue.id           # beads issue ID (dl-1kz)
+devloop.issue.repo         # Target repository
 devloop.agent.id           # Unique agent run ID
 devloop.agent.persona      # bug-fix, feature, refactor, security-fix
 devloop.tracer_bullet      # tb1, tb2, etc.
@@ -59,11 +63,12 @@ devloop.retry.attempt      # 0, 1, 2
 devloop.retry.reason       # Why the previous attempt failed
 ```
 
-## OpenObserve (Storage + Dashboards)
+## OpenObserve (Storage + Dashboards + Alerts)
+
+Replaces Datadog/Splunk/Elasticsearch AND OneUptime. Single binary, 140x cheaper storage.
 
 ### Deployment
 ```bash
-# Single binary, Docker
 docker run -d \
   --name openobserve \
   -p 5080:5080 \
@@ -76,10 +81,10 @@ docker run -d \
 ### Dashboards
 
 **Dashboard 1: Loop Health**
-- Tickets processed (today/week/month)
-- Success rate (PRs created / tickets attempted)
-- Average lead time (ticket pickup → PR created)
-- Average cost per ticket
+- Issues processed (today/week/month)
+- Success rate (PRs created / issues attempted)
+- Average lead time (issue pickup → PR created)
+- Average cost per issue
 - Gate failure breakdown (which gates fail most)
 
 **Dashboard 2: Agent Performance**
@@ -93,14 +98,14 @@ docker run -d \
 - Gate pass/fail rates over time
 - Most common failure reasons
 - Security findings by CWE category
-- CodeRabbit critical findings trend
+- LLM-as-judge critical findings trend
 - Secret scanner catches (should be zero in steady state)
 
 **Dashboard 4: DORA Metrics**
 - Deployment frequency: PRs merged per week per repo
-- Lead time: ticket created → PR merged
+- Lead time: issue created → PR merged
 - Change failure rate: PRs reverted or causing incidents
-- MTTR: incident detected → resolved (from OneUptime)
+- MTTR: incident detected → resolved
 
 **Dashboard 5: Cost Tracking**
 - Total spend (daily/weekly/monthly)
@@ -109,7 +114,19 @@ docker run -d \
 - Spend by model (if using multiple)
 - Budget utilization (spent/budget ratio)
 
+### Alerts (Replaces OneUptime)
+
+OpenObserve has built-in alert rules. No separate incident management tool needed.
+
+When alerts trigger:
+- 3+ gate failures in 10 minutes → investigate
+- Agent stuck for > 5 minutes with no tool calls → kill
+- Cost ceiling exceeded across all projects → pause all
+- Service health check fails (Anthropic API, OpenObserve) → notify
+
 ## AgentLens (Session Replay)
+
+Open source (github.com/RobertTLange/agentlens). Local observability for coding-agent sessions.
 
 ### What it captures
 - Every tool call the agent made (with arguments and results)
@@ -123,11 +140,13 @@ docker run -d \
 AgentLens runs alongside the agent in the worktree. It hooks into Claude Code's tool execution layer.
 
 ```
-src/mcp/agentlens-bridge/
-├── server.ts      # MCP server that AgentLens talks to
-├── recorder.ts    # Captures tool calls and LLM calls
-├── linker.ts      # Links session to OTel trace_id
-└── types.ts
+src/devloop/observability/
+├── __init__.py
+├── otel_setup.py      # Initialize OTel SDK, configure exporters
+├── span_factory.py    # Helper to create properly attributed spans
+├── dashboards/        # Dashboard definitions (JSON/YAML)
+├── alerts/            # Alert rule definitions
+└── types.py
 ```
 
 ### Usage
@@ -136,68 +155,16 @@ src/mcp/agentlens-bridge/
 just sessions list --status failed
 # Replay it
 just sessions replay <session-id>
-# Compare two attempts of the same ticket
+# Compare two attempts of the same issue
 just sessions diff <session-id-1> <session-id-2>
 ```
 
-## OneUptime (Incident Management)
-
-### When it triggers
-- OpenObserve alert rule fires (e.g., 3+ gate failures in 10 minutes)
-- Agent stuck for > 5 minutes with no tool calls
-- Cost ceiling exceeded across all projects
-- Service health check fails (Linear API, Anthropic API, OpenObserve)
-
-### What it does
-- Creates incident with context (linked traces, gate results)
-- Sends notification (webhook, Slack, email — configurable)
-- Tracks resolution timeline (MTTR)
-- AI-powered root cause suggestion (optional)
-
-## MCP Server: `observability`
-
-```
-src/mcp/observability/
-├── server.ts          # MCP server entry
-├── otel-setup.ts      # Initialize OTel SDK, configure exporters
-├── span-factory.ts    # Helper to create properly attributed spans
-├── dashboards/        # Dashboard definitions (JSON/YAML)
-├── alerts/            # Alert rule definitions
-└── types.ts
-```
-
-**Tools exposed:**
-- `query_traces` — search traces by ticket ID, agent ID, status
-- `get_trace_detail` — full span tree for a trace
-- `get_metrics` — query metrics (cost, token usage, lead time)
-- `create_alert` — define a new alert rule
-- `get_dora_metrics` — DORA metrics for a time range
-
-### OTel Setup (Shared)
-
-```typescript
-// src/mcp/observability/otel-setup.ts
-// All layers import this to get consistent instrumentation
-
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
-
-const sdk = new NodeSDK({
-  traceExporter: new OTLPTraceExporter({
-    url: 'http://localhost:5080/api/default/v1/traces',
-  }),
-  metricReader: new PeriodicExportingMetricReader({
-    exporter: new OTLPMetricExporter({
-      url: 'http://localhost:5080/api/default/v1/metrics',
-    }),
-  }),
-});
-```
+## Optional: Agent Trace
+Open RFC specification for tracking and attributing AI-generated code contributions. Vendor-neutral trace records at file and line granularity. Evaluate for TB-6.
 
 ### Open Questions
 - [ ] OpenObserve retention policy — how long to keep traces? (30 days default)
 - [ ] AgentLens storage — local files or ship to OpenObserve?
-- [ ] OneUptime self-hosted vs cloud? (self-hosted is free, cloud has more features)
 - [ ] Alert fatigue — what's the right threshold before we tune out notifications?
 - [ ] How to correlate AgentLens sessions with OTel traces? (trace_id as link)
+- [ ] Agent Trace RFC — is it mature enough to adopt?

@@ -1,0 +1,17 @@
+# Cross-repo dependency map for cascade detection (TB-5)
+# See docs/layers/06-feedback-loop.md Channel 4
+
+dependencies:
+  - source: prompt-bench
+    target: omniswipe-backend
+    watches:
+      - "src/api/**"
+      - "src/types/**"
+    type: api-contract
+
+  - source: omniswipe-backend
+    target: omniswipe-mobile
+    watches:
+      - "src/routes/**"
+      - "prisma/schema.prisma"
+    type: api-contract

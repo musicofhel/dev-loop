@@ -1,0 +1,39 @@
+[project]
+name = "devloop"
+version = "0.1.0"
+description = "Tracer-bullet-driven developer tooling harness — closed-loop agent orchestration across multiple projects"
+readme = "README.md"
+authors = [
+    { name = "musicofhel", email = "musicofhel@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.0",
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "deepeval>=3.8.9",
+    "anthropic>=0.40",
+]
+
+[project.scripts]
+devloop = "devloop.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"

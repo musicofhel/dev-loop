@@ -1,0 +1,15 @@
+# Gate 4: DeepEval LLM-as-judge code review configuration
+# See docs/layers/04-quality-gates.md
+
+review:
+  model: claude-sonnet-4-6  # cheaper than opus for review
+  criteria:
+    - race_conditions
+    - memory_leaks
+    - logic_errors
+    - missing_error_handling_at_boundaries
+    - performance_antipatterns
+  severity_levels:
+    critical: fail    # gate FAILS
+    warning: pass     # attached to PR as warnings
+    suggestion: pass  # attached to PR as suggestions

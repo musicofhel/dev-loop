@@ -1,0 +1,10 @@
+# Scheduling and priority configuration
+# See docs/layers/02-orchestration.md and docs/edge-cases-pass2.md (#36)
+
+max_concurrent_agents: 3
+priority_order: [P0, P1, P2, P3, P4]
+
+budget_throttle:
+  80_percent: P1_and_above_only
+  95_percent: P0_only
+  100_percent: pause_all

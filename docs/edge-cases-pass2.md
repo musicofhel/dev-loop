@@ -7,16 +7,16 @@ Problems that exist in the *structure* of the system, not just individual failur
 ## The Large Repo Problem
 
 ### 26. CLAUDE.md Doesn't Scale
-**Problem:** A single CLAUDE.md works for a 5k LOC repo. For a 50k+ LOC repo (like omniswipe-backend), the agent can't hold the whole codebase in context. Our harness gives the agent a ticket and says "go" — but the agent doesn't know WHERE in the codebase to look.
+**Problem:** A single CLAUDE.md works for a 5k LOC repo. For a 50k+ LOC repo (like omniswipe-backend), the agent can't hold the whole codebase in context. Our harness gives the agent an issue and says "go" — but the agent doesn't know WHERE in the codebase to look.
 
 Research from the graph backs this up: the "Codified Context" paper argues for three-tier memory (hot constitution, domain-expert agents, cold knowledge base). Single-file instructions hit a wall.
 
 **Fix:** Tiered context loading in the runtime layer:
-- **Tier 1 (hot):** CLAUDE.md + ticket description + agent persona overlay. Always loaded.
+- **Tier 1 (hot):** CLAUDE.md + issue description + agent persona overlay. Always loaded.
 - **Tier 2 (warm):** File map / codebase summary generated once per repo. Agent scans this to narrow scope. Regenerated on major changes.
 - **Tier 3 (cold):** Full file contents. Agent pulls specific files on demand via tool calls.
 
-The orchestration layer should generate a "scope hint" from the ticket — e.g., ticket mentions "auth" → pre-load `src/auth/**` file list into context.
+The orchestration layer should generate a "scope hint" from the issue — e.g., issue mentions "auth" → pre-load `src/auth/**` file list into context.
 
 **Also:** Headroom (0.88 in graph) is a transparent proxy that compresses LLM context by 47-92% (strips boilerplate from tool outputs, DB queries, file reads). This belongs in the runtime layer between agent and LLM API, alongside the token proxy.
 
@@ -74,15 +74,15 @@ This requires checking out main briefly before the agent's branch, or caching re
 ## Partial and Ambiguous Outcomes
 
 ### 30. Partial Success
-**Problem:** Ticket says "fix the auth bug and update the related tests." Agent fixes the bug but doesn't update the tests. Is this a success or failure? Current design is all-or-nothing — gates pass or fail.
+**Problem:** Issue says "fix the auth bug and update the related tests." Agent fixes the bug but doesn't update the tests. Is this a success or failure? Current design is all-or-nothing — gates pass or fail.
 
 **Fix:** Two approaches:
-- **Decomposition (preferred):** Orchestration layer breaks the ticket into sub-tasks. Each sub-task is independently gateable. Partial credit = some sub-tasks pass, some don't.
-- **Acceptance criteria parsing:** ATDD specs define what "done" means. If the ticket has Given/When/Then specs, partial success = some specs pass.
+- **Decomposition (preferred):** Orchestration layer breaks the issue into sub-tasks. Each sub-task is independently gateable. Partial credit = some sub-tasks pass, some don't.
+- **Acceptance criteria parsing:** ATDD specs define what "done" means. If the issue has Given/When/Then specs, partial success = some specs pass.
 
-What the system should NOT do: merge a partial fix and hope someone finishes it. Either the ticket is fully done or it stays open.
+What the system should NOT do: merge a partial fix and hope someone finishes it. Either the issue is fully done or it stays open.
 
-**TB-1 action:** TB-1 uses simple tickets (one clear change). Decomposition becomes relevant when tickets get complex.
+**TB-1 action:** TB-1 uses simple issues (one clear change). Decomposition becomes relevant when issues get complex.
 
 ### 31. Agent Says "Already Fixed" or "Not Reproducible"
 **Problem:** Agent reads the codebase, determines the bug is already fixed (or can't reproduce it), and reports completion with zero changes. Is this a legitimate outcome or a hallucination?
@@ -92,19 +92,19 @@ What the system should NOT do: merge a partial fix and hope someone finishes it.
 2. Route to human with agent's explanation: "I investigated and found the bug was fixed in commit abc123"
 3. Human confirms or reopens with more context
 
-Never auto-close a ticket based on agent's say-so. Move to "Needs Verification" status.
+Never auto-close an issue based on agent's say-so. Move to "blocked" with "needs-verification" label.
 
-**TB-1 action:** Add "Needs Verification" as a Linear status for zero-diff completions.
+**TB-1 action:** Add "needs-verification" label for zero-diff completions.
 
-### 32. Ticket Is Ambiguous or Underspecified
-**Problem:** Ticket says "improve performance." Agent doesn't know what to optimize, guesses wrong, spends budget on irrelevant changes.
+### 32. Issue Is Ambiguous or Underspecified
+**Problem:** Issue says "improve performance." Agent doesn't know what to optimize, guesses wrong, spends budget on irrelevant changes.
 
-**Fix:** Orchestration analysis step should flag ambiguous tickets:
+**Fix:** Orchestration analysis step should flag ambiguous issues:
 - No specific file/function mentioned → flag
 - Vague verbs ("improve", "clean up", "make better") → flag
 - No acceptance criteria and no ATDD spec → flag
 
-Flagged tickets get moved to "Needs Clarification" instead of being assigned to an agent.
+Flagged issues get moved to "deferred" with "needs-clarification" label instead of being assigned to an agent.
 
 **TB-1 action:** Basic ambiguity detection (word list check). More sophisticated NLP later.
 
@@ -159,7 +159,7 @@ Gate 0 (compilation) catches import/reference errors. But it doesn't catch SEMAN
 **Fix:**
 - Gate 0 catches structural hallucination (compilation errors)
 - ATDD (Gate 1) catches behavioral hallucination (function exists but does wrong thing)
-- CodeRabbit (Gate 4) may catch logical hallucination ("this function doesn't do what the comment says")
+- DeepEval review (Gate 4) may catch logical hallucination ("this function doesn't do what the comment says")
 - The real defense: agent CLAUDE.md rule — "Always read a function's implementation before calling it. Never assume what a function does from its name alone."
 
 **TB-1 action:** Add "read before call" rule to CLAUDE.md overlay. Monitor for hallucination in AgentLens traces.
@@ -169,25 +169,25 @@ Gate 0 (compilation) catches import/reference errors. But it doesn't catch SEMAN
 ## Operational Gaps
 
 ### 36. Priority Queuing
-**Problem:** 10 tickets are "Ready" simultaneously. Which gets picked first? Current intake polls and grabs whatever Linear returns. No priority logic.
+**Problem:** 10 issues are "open" simultaneously. Which gets picked first? Current intake polls `br ready` and grabs whatever it returns. No priority logic.
 
 **Fix:**
-- Respect Linear's priority field (Urgent > High > Medium > Low > No priority)
+- Respect beads priority field (P0 > P1 > P2 > P3 > P4)
 - Within same priority: FIFO (oldest first)
 - Concurrent agent limit: configurable max (default 3). Queue the rest.
-- Cost-aware scheduling: if weekly budget is 80% spent, only process Urgent/High tickets
+- Cost-aware scheduling: if weekly budget is 80% spent, only process P0/P1 issues
 
 ```yaml
 # config/scheduling.yaml
 max_concurrent_agents: 3
-priority_order: [urgent, high, medium, low, none]
+priority_order: [P0, P1, P2, P3, P4]
 budget_throttle:
-  80_percent: high_and_above_only
-  95_percent: urgent_only
+  80_percent: P1_and_above_only
+  95_percent: P0_only
   100_percent: pause_all
 ```
 
-**TB-1 action:** Single ticket, no queuing needed. Must be in place before running multiple tickets.
+**TB-1 action:** Single issue, no queuing needed. Must be in place before running multiple issues.
 
 ### 37. Model Selection Strategy
 **Problem:** Not all tasks need Opus. A typo fix doesn't need the most expensive model. A complex refactor does. Currently no model routing.
@@ -205,7 +205,7 @@ personas:
     model: haiku   # cheapest, docs are low-risk
 ```
 
-Override per ticket via custom field: `model_override: opus`
+Override per issue via label: `model:opus`
 
 **TB-4 action:** This directly impacts cost control. Evaluate during TB-4.
 
@@ -215,16 +215,16 @@ Override per ticket via custom field: `model_override: opus`
 **Fix:** `just onboard <repo-path>` command that:
 1. Detects language/framework (package.json → Node, pyproject.toml → Python, Cargo.toml → Rust)
 2. Generates `config/projects/<repo-name>.yaml` with sensible defaults
-3. Creates Linear project (or links to existing)
+3. Creates beads issues for initial test runs
 4. Copies CLAUDE.md template to repo
 5. Runs Gate 0 sanity check to verify the repo builds/tests cleanly
-6. Seeds one test ticket
+6. Seeds one test issue
 7. Runs TB-1 dry run
 
 **TB-1 action:** Manual onboarding is fine. Automate when adding the third repo.
 
 ### 39. Harness Self-Testing
-**Problem:** dev-loop is a repo with config files, YAML, templates, and eventually TypeScript glue code. Who tests the harness itself?
+**Problem:** dev-loop is a repo with config files, YAML, templates, and Python glue code. Who tests the harness itself?
 
 **Fix:**
 - Config validation: `just validate-config` — YAML schema check on all config files
@@ -235,12 +235,12 @@ Override per ticket via custom field: `model_override: opus`
 **TB-1 action:** Add `just validate-config` and `--dry-run` mode.
 
 ### 40. Reproducibility
-**Problem:** LLMs are non-deterministic. Same ticket, same code, different result. When debugging: "it worked yesterday, fails today" is meaningless without the full prompt.
+**Problem:** LLMs are non-deterministic. Same issue, same code, different result. When debugging: "it worked yesterday, fails today" is meaningless without the full prompt.
 
 **Fix:**
 - AgentLens captures the full prompt for every LLM call (already planned)
 - Add `temperature: 0` to agent config for maximum reproducibility
-- Seed ticket fixtures (already created) allow re-running the same scenario
+- Seed issue fixtures (already created) allow re-running the same scenario
 - OTel traces + AgentLens sessions = full replay of every decision
 
 What we CAN'T guarantee: exact same output. What we CAN guarantee: full visibility into why the output differed.
@@ -251,7 +251,7 @@ What we CAN'T guarantee: exact same output. What we CAN guarantee: full visibili
 
 ## Licensing / Legal
 
-### 41. Tool Licensing Compatibility
+### 41. Tool Licensing Compatibility — UPDATED for OSS Stack
 **Problem:** We're composing tools with different licenses. Need to verify nothing conflicts.
 
 | Tool | License | Concern |
@@ -259,15 +259,15 @@ What we CAN'T guarantee: exact same output. What we CAN guarantee: full visibili
 | OpenObserve | AGPL-3.0 | AGPL requires source disclosure if you modify and serve it. We're using it as-is (Docker), so no issue unless we fork. |
 | OpenFang | MIT | No concerns |
 | dmux | MIT | No concerns |
-| CodeRabbit | Commercial (free tier) | Need to verify free tier limits for our usage |
-| Aikido | Commercial | Need to verify pricing |
 | DeepEval | Apache-2.0 | No concerns |
+| VibeForge Scanner | TBD | Verify license before committing. Fallback: semgrep (LGPL-2.1) |
 | ATDD | MIT | No concerns |
 | AgentLens | MIT | No concerns |
-| Linear | Commercial SaaS | Free tier: 250 issues. Enough for testing, need paid for production. |
 | Headroom | Apache-2.0 | No concerns |
+| gitleaks | MIT | No concerns |
+| beads (br) | TBD | Verify license |
 
-**TB-1 action:** Verify CodeRabbit and Linear free tier limits before committing.
+**TB-1 action:** All tools are open source. Verify VibeForge and beads licenses before committing.
 
 ---
 
@@ -279,11 +279,11 @@ What we CAN'T guarantee: exact same output. What we CAN guarantee: full visibili
 | #28 In-process backpressure | HIGH | TB-1 | During TB-1 (CLAUDE.md overlay) |
 | #26 Large repo context | HIGH | TB-5 | Before TB-5 |
 | #35 Agent hallucination | HIGH | All | During TB-1 (CLAUDE.md rule) |
-| #36 Priority queuing | HIGH | Multi-ticket | Before running concurrent tickets |
+| #36 Priority queuing | HIGH | Multi-issue | Before running concurrent issues |
 | #29 Flaky tests | MEDIUM | TB-5 | Before TB-5 targets complex repos |
 | #34 Lock file consistency | MEDIUM | TB-1 | During TB-1 (Gate 0) |
-| #32 Ambiguous tickets | MEDIUM | TB-1 | During TB-1 (intake analysis) |
-| #30 Partial success | MEDIUM | TB-2+ | When tickets get complex |
+| #32 Ambiguous issues | MEDIUM | TB-1 | During TB-1 (intake analysis) |
+| #30 Partial success | MEDIUM | TB-2+ | When issues get complex |
 | #37 Model selection | MEDIUM | TB-4 | During TB-4 (cost control) |
 | #27 Context compression | LOW | TB-4 | Evaluate during TB-4 |
 | #31 "Already fixed" | LOW | TB-1 | During TB-1 |

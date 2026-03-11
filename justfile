@@ -28,16 +28,36 @@ stack-down:
 # Check service health
 stack-health:
     @echo "=== OpenObserve ===" && curl -s http://localhost:5080/healthz && echo
-    @echo "=== Linear API ===" && echo "TODO: verify Linear API key"
+    @echo "=== Beads ===" && br stats --quiet 2>/dev/null && echo "  OK" || echo "  NOT INITIALIZED"
     @echo "=== Anthropic API ===" && echo "TODO: verify Anthropic API key"
+
+# ─── Beads (Issue Tracking) ───
+
+# Show what's ready to work on
+ready:
+    br ready
+
+# Show full dependency graph
+graph:
+    br graph --all
+
+# Show project stats
+beads-stats:
+    br stats
+
+# Show blocked issues
+blocked:
+    br blocked
 
 # ─── Tracer Bullets ───
 
 # TB-1: Ticket-to-PR (golden path)
-tb1 *ARGS:
+# Usage: just tb1 <issue_id> <repo_path>
+# Example: just tb1 dl-abc /home/musicofhel/prompt-bench
+tb1 ISSUE_ID REPO_PATH:
     @echo "Running TB-1: Ticket-to-PR"
-    @echo "TODO: implement after intent docs are complete"
-    @echo "Args: {{ARGS}}"
+    @echo "Issue: {{ISSUE_ID}} | Repo: {{REPO_PATH}}"
+    uv run python -c "from devloop.feedback.pipeline import run_tb1; import json; print(json.dumps(run_tb1('{{ISSUE_ID}}', '{{REPO_PATH}}'), indent=2))"
 
 # TB-2: Failure-to-retry (feedback path)
 tb2 *ARGS:
@@ -90,23 +110,35 @@ score-tool TOOL:
 
 # EMERGENCY: Kill all agents, pause intake, preserve worktrees
 emergency-stop:
-    @echo "!!! EMERGENCY STOP !!!"
-    @echo "Killing all agent processes..."
-    -pkill -f "claude" 2>/dev/null || true
-    @echo "Stopping intake polling..."
-    @echo "TODO: send stop signal to intake MCP server"
-    @echo "Marking in-progress tickets as Interrupted..."
-    @echo "TODO: Linear API bulk status update"
-    @echo "Worktrees preserved for forensics."
-    @echo "Run 'just status' to see state. Run 'just recover' to clean up."
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "!!! EMERGENCY STOP !!!"
+    echo ""
+    echo "Killing all claude processes..."
+    pkill -f "claude" 2>/dev/null && echo "  Killed." || echo "  No claude processes found."
+    echo ""
+    echo "Marking in-progress beads issues as interrupted..."
+    ids=$(br list --status in_progress --json 2>/dev/null | python3 -c "import sys,json; print(' '.join(i['id'] for i in json.load(sys.stdin)))" 2>/dev/null || true)
+    if [ -n "$ids" ]; then
+        for id in $ids; do
+            br update "$id" --status open --add-label interrupted 2>/dev/null \
+                && echo "  $id → open (interrupted)" \
+                || echo "  $id — failed to update"
+        done
+    else
+        echo "  No in-progress issues found."
+    fi
+    echo ""
+    echo "Worktrees preserved for forensics."
+    echo "Run 'just status' to see state. Run 'just recover' to clean up."
 
 # Recover from crashed/interrupted runs
 recover:
     @echo "=== Recovery scan ==="
     @echo "Checking for orphaned worktrees..."
     @find /tmp/dev-loop/worktrees -name ".dev-loop-metadata.json" -mmin +60 2>/dev/null || echo "  No worktree directory found"
-    @echo "Checking for stuck tickets..."
-    @echo "TODO: query Linear for 'In Progress' tickets older than 1 hour"
+    @echo "Checking for stuck issues..."
+    @br stale --days 1 2>/dev/null || echo "  No stale issues"
     @echo "Run 'just worktree-gc' to clean up orphaned worktrees"
 
 # Clean up orphaned worktrees older than 24h
@@ -117,31 +149,29 @@ worktree-gc:
 
 # ─── Utilities ───
 
-# Bypass Linear — run agent directly on a repo
+# Bypass beads — run agent directly on a repo
 run-direct REPO TASK:
     @echo "Direct run on {{REPO}}: {{TASK}}"
     @echo "TODO: implement direct agent spawn"
 
-# Run TB-1 with mock intake (no Linear required)
+# Run TB-1 with mock intake (beads fixture)
 tb1-mock FIXTURE="test-fixtures/tickets/tb1-sample.yaml":
     @echo "Running TB-1 with mock intake: {{FIXTURE}}"
-    @echo "TODO: load ticket from YAML fixture, skip Linear"
+    @echo "TODO: load ticket from YAML fixture, create beads issue, run pipeline"
 
 # List all agent sessions
 sessions-list *ARGS:
     @echo "TODO: integrate with AgentLens"
 
-# View project status across all test repos
+# View project status
 status:
     @echo "=== dev-loop status ==="
     @echo ""
-    @echo "Tracer Bullets:"
-    @echo "  TB-1 (Ticket-to-PR):      NOT STARTED"
-    @echo "  TB-2 (Failure-to-Retry):   NOT STARTED"
-    @echo "  TB-3 (Security Gate):      NOT STARTED"
-    @echo "  TB-4 (Cost Control):       NOT STARTED"
-    @echo "  TB-5 (Cross-Repo):         NOT STARTED"
-    @echo "  TB-6 (Session Replay):     NOT STARTED"
+    @echo "Beads:"
+    @br count --by-status 2>/dev/null || echo "  NOT INITIALIZED"
+    @echo ""
+    @echo "Ready to work:"
+    @br ready 2>/dev/null | head -5 || echo "  None"
     @echo ""
     @echo "Services:"
     @docker inspect -f '{{{{.State.Status}}}}' dev-loop-openobserve 2>/dev/null || echo "  OpenObserve: NOT RUNNING"
@@ -161,3 +191,21 @@ docs-toc:
     @echo ""
     @echo "## ADRs"
     @for f in docs/adrs/*.md; do echo "- [$$(head -1 $$f | sed 's/# //')]($$f)"; done
+
+# ─── Python / uv ───
+
+# Install/sync all dependencies
+sync:
+    uv sync
+
+# Run linter
+lint:
+    uv run ruff check src/
+
+# Run tests
+test:
+    uv run pytest
+
+# Format code
+fmt:
+    uv run ruff format src/

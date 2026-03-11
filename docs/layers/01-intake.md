@@ -1,67 +1,73 @@
 # Layer 1: Intake
 
 ## Purpose
-Single entry point for all work. Every task enters the system as a Linear ticket. No back-channel requests, no "just run this real quick." If it doesn't have a ticket, it doesn't get an agent.
+Single entry point for all work. Every task enters the system as a beads issue. No back-channel requests, no "just run this real quick." If it doesn't have an issue, it doesn't get an agent.
 
-## Primary Tool: Linear
+## Primary Tool: beads (br)
 
-### Why Linear
-- Developer-focused, keyboard-driven — agents and humans use the same interface
-- API-first with webhooks — no scraping or polling hacks needed
-- Projects, labels, and custom fields map cleanly to our orchestration needs
-- Symphony (OpenAI) already integrates with Linear → proven pattern
+### Why beads
+- Agent-first, CLI-native — designed for automated workflows
+- Local SQLite + JSONL — no network dependency, no API key, no rate limits
+- `br ready` returns exactly what we need: unblocked, non-deferred issues
+- Dependencies with `br dep` — TB ordering is native
+- Epics for tracer bullet grouping
+- `br graph --all` for dependency visualization
+- `br changelog` for auto-generated changelogs
+- JSON output for programmatic consumption (`--json`)
+- Issue state lives in the repo (`.beads/`) — version controlled
 
-### What Linear Tracks
-- **Tickets** — one ticket per unit of work (bug fix, feature, refactor)
+### What beads Tracks
+- **Issues** — one issue per unit of work (bug fix, feature, refactor)
 - **Labels** — map to agent config: `bug`, `feature`, `refactor`, `security`, `docs`
-- **Custom fields** — `target_repo`, `cost_ceiling`, `priority`
-- **Status flow**: Backlog → Ready → In Progress → In Review → Done / Blocked
-- **DORA metrics** — lead time (Ready → Done), deployment frequency (Done count/week)
+- **Priority** — P0-P4, maps to scheduling order
+- **Dependencies** — `br dep add` models TB ordering and task prerequisites
+- **Status flow**: open → in_progress → closed (or deferred, blocked)
+- **DORA metrics** — computed from `br changelog` + git log → OpenObserve
 
-### MCP Server: `linear-intake`
+### Optional: Beads-Kanban-UI
+Visual Kanban board for beads (Next.js + Rust). Real-time file sync, epic tracking, GitOps (PR creation/merge from UI), multi-project dashboards. Deploy if stakeholder visibility is needed.
+
+### MCP Server: `beads-intake`
 
 ```
-src/mcp/linear-intake/
-├── server.ts          # MCP server entry
-├── poll.ts            # Poll Linear API for "Ready" tickets
-├── webhook.ts         # Handle Linear webhooks (faster, TB-1 uses polling first)
-├── ticket-parser.ts   # Extract structured data from ticket
-└── types.ts           # Linear ticket → internal WorkItem type
+src/devloop/intake/
+├── __init__.py
+├── beads_poller.py    # Poll br ready --json for unblocked issues
+├── ticket_parser.py   # Extract structured data from issue
+└── types.py           # beads issue → internal WorkItem type
 ```
 
 **Tools exposed:**
-- `poll_ready_tickets` — returns all tickets in "Ready" status for configured projects
-- `get_ticket_detail` — full ticket with metadata, comments, linked issues
-- `update_ticket_status` — move ticket to new status
-- `add_ticket_comment` — post agent status updates back to the ticket
+- `poll_ready_issues` — returns all issues with no blockers via `br ready --json`
+- `get_issue_detail` — full issue with metadata, comments, dependencies
+- `update_issue_status` — move issue to new status via `br update`
+- `add_issue_comment` — post agent status updates via `br comments add`
 
 ### OTel Instrumentation
-Every ticket pickup emits a span:
+Every issue pickup emits a span:
 ```
-span: intake.ticket_pickup
+span: intake.issue_pickup
 attributes:
-  ticket.id: LIN-123
-  ticket.repo: prompt-bench
-  ticket.labels: [bug, backend]
-  ticket.cost_ceiling: 2.00
-  ticket.priority: high
+  issue.id: dl-1kz
+  issue.repo: prompt-bench
+  issue.labels: [bug, backend]
+  issue.priority: 0
 ```
 This span becomes the root of the full trace for this work item.
 
 ### Tracer Bullet Coverage
-- **TB-1**: Polling loop picks up a "Ready" ticket, starts the trace
-- **TB-2**: Seed ticket with bad data, same intake path
-- **TB-3**: Seed ticket that will produce a security vuln
-- **TB-4**: Seed ticket with intentionally large scope
-- **TB-5**: Listens for merged PR webhooks, creates downstream tickets
+- **TB-1**: Polling loop picks up a ready issue, starts the trace
+- **TB-2**: Seed issue with bad data, same intake path
+- **TB-3**: Seed issue that will produce a security vuln
+- **TB-4**: Seed issue with intentionally large scope
+- **TB-5**: Listens for merged PR webhooks, creates downstream issues
 - **TB-6**: Same intake, full session captured downstream
 
 ### Escape Hatches
-- `just run-direct --repo prompt-bench --task "fix the typo in README"` — bypass Linear entirely for quick one-offs
-- Polling interval configurable (default 60s, `--poll-interval 10` for testing)
-- Webhook mode optional — polling works for MVP, webhooks for production
+- `just run-direct --repo prompt-bench --task "fix the typo in README"` — bypass beads entirely for quick one-offs
+- Mock intake mode: `just tb1-mock` loads from YAML fixture, creates beads issue, runs pipeline
 
 ### Open Questions
-- [ ] Linear free tier limits? Need to verify API rate limits for polling
-- [ ] Do we create sub-tickets for decomposed tasks, or keep it flat?
-- [ ] How do we handle tickets that span multiple repos? (TB-5 addresses this)
+- [ ] Beads-Kanban-UI maturity — is it production-ready?
+- [ ] Do we create sub-issues for decomposed tasks, or keep it flat?
+- [ ] How do we handle issues that span multiple repos? (TB-5 addresses this)

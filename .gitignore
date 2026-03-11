@@ -6,3 +6,12 @@ dist/
 *.pem
 *.key
 .DS_Store
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+.dmux/

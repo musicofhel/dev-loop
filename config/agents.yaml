@@ -1,0 +1,49 @@
+# Agent persona configuration
+# Label → persona mapping used by orchestration layer
+# See docs/layers/02-orchestration.md for details
+
+personas:
+  bug-fix:
+    labels: [bug]
+    claude_md_overlay: |
+      Focus on minimal fix. Read the failing test first.
+      Do not refactor surrounding code.
+    cost_ceiling_default: 1.00
+    retry_max: 2
+    model: sonnet
+
+  feature:
+    labels: [feature]
+    claude_md_overlay: |
+      Implement the feature as described in the issue.
+      Write tests for new code. Follow existing patterns.
+    cost_ceiling_default: 5.00
+    retry_max: 1
+    model: opus
+
+  refactor:
+    labels: [refactor]
+    claude_md_overlay: |
+      Preserve all existing behavior. Run tests before and after.
+      Commit in small increments.
+    cost_ceiling_default: 3.00
+    retry_max: 1
+    model: opus
+
+  security-fix:
+    labels: [security]
+    claude_md_overlay: |
+      Fix the security vulnerability without changing functionality.
+      Reference the CWE/CVE in your commit message.
+      Run security scan to verify the fix.
+    cost_ceiling_default: 2.00
+    retry_max: 3
+    model: opus
+
+  docs:
+    labels: [docs]
+    claude_md_overlay: |
+      Update documentation only. Do not change code.
+    cost_ceiling_default: 0.50
+    retry_max: 1
+    model: haiku

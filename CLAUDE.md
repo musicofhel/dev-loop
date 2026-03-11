@@ -15,11 +15,12 @@ Developer tooling harness. Not an app. Not a library. A composition of tools wir
 - Every tool must be individually bypassable (escape hatches, not locked gates)
 
 ## Code Standards
-- Glue code in TypeScript (MCP servers, hooks, thin wrappers)
+- Glue code in Python, managed by uv (pyproject.toml, `uv run`, `uv sync`)
+- MCP servers via fastmcp — one per layer under `src/devloop/<layer>/`
 - Config in YAML or TOML — no JSON for human-edited config
-- Justfile for all commands — no Makefiles, no npm scripts for orchestration
-- Every MCP server gets its own directory under `src/mcp/`
-- Every hook gets its own file under `src/hooks/`
+- Justfile for all commands — `just` delegates to `uv run` for Python tasks
+- Issue tracking via beads (br) — replaces Linear as intake layer
+- `br ready` = what's ready to work on, `br graph` = dependency visualization
 
 ## Testing
 - Test against real repos (prompt-bench, omniswipe-backend, enterprise-pipeline)

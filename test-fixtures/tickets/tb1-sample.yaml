@@ -1,4 +1,4 @@
-# Mock ticket for TB-1 testing without Linear
+# Mock ticket for TB-1 testing without external dependencies
 # Usage: just tb1-mock test-fixtures/tickets/tb1-sample.yaml
 
 id: MOCK-001
