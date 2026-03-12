@@ -195,18 +195,32 @@ def run_gate_0_sanity(worktree_path: str) -> dict:
                 error=f"Worktree not found: {worktree}",
             ).model_dump()
 
-        # --- Check: git diff --stat shows at least 1 file changed ---
-        diff_result = _run_cmd(["git", "diff", "--stat"], cwd=worktree)
-        if diff_result.returncode != 0:
-            # Maybe it's not a git repo, or all changes are committed.
-            # Try git diff HEAD~1 --stat for committed changes.
-            diff_result = _run_cmd(["git", "diff", "HEAD~1", "--stat"], cwd=worktree)
-
-        diff_output = diff_result.stdout.strip()
+        # --- Check: any file changes (unstaged, staged, or committed) ---
+        diff_output = ""
+        # 1. Unstaged changes
+        r = _run_cmd(["git", "diff", "--stat"], cwd=worktree)
+        if r.stdout.strip():
+            diff_output = r.stdout.strip()
+        # 2. Staged changes
         if not diff_output:
-            # Also check staged changes
-            staged_result = _run_cmd(["git", "diff", "--cached", "--stat"], cwd=worktree)
-            diff_output = staged_result.stdout.strip()
+            r = _run_cmd(["git", "diff", "--cached", "--stat"], cwd=worktree)
+            if r.stdout.strip():
+                diff_output = r.stdout.strip()
+        # 3. Commits on this branch vs parent (agent may have committed)
+        if not diff_output:
+            # Find the merge-base to detect new commits on the worktree branch
+            base_r = _run_cmd(
+                ["git", "merge-base", "HEAD", "HEAD~10"],
+                cwd=worktree,
+            )
+            if base_r.returncode == 0 and base_r.stdout.strip():
+                base = base_r.stdout.strip()
+                r = _run_cmd(
+                    ["git", "diff", base, "HEAD", "--stat"],
+                    cwd=worktree,
+                )
+                if r.stdout.strip():
+                    diff_output = r.stdout.strip()
 
         if not diff_output:
             findings.append(
@@ -251,7 +265,7 @@ def run_gate_0_sanity(worktree_path: str) -> dict:
 
         elif project_type == "python":
             # Ensure deps are installed in the worktree before testing
-            _run_cmd(["uv", "sync"], cwd=worktree, timeout=120)
+            _run_cmd(["uv", "sync", "--dev"], cwd=worktree, timeout=120)
             test_result = _run_cmd(
                 ["uv", "run", "pytest", "--tb=short", "-q"], cwd=worktree, timeout=300
             )
