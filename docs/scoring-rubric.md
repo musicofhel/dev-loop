@@ -67,10 +67,29 @@ Threshold: 0.6 to include, 0.8 to be primary choice
 |------|-------|-----|---------|-------|-----------|------|-----------|-----------|
 | DeepEval Step Efficiency | ? | ? | ? | ? | ? | 5 (OSS) | ? | **TBD** |
 
+## TB-1 Real Usage Data (2026-03-12)
+
+Four TB-1 runs completed (2 success, 2 escalated during development):
+
+| Tool | Used in TB-1? | Observation | Score Change |
+|------|--------------|-------------|--------------|
+| **beads (br)** | Yes — poll, claim, status updates, comments | Worked flawlessly. poll_ready/claim_issue latency <100ms. Added timeout=30 as safety. | 0.92 → **0.92** (confirmed) |
+| **dmux** | No — git worktree add used directly | TUI-only, cannot be called programmatically. `git worktree add` works better for automation. | 0.80 → **0.65** (downgraded, MCP=1) |
+| **DeepEval** | No — Claude Code CLI used for LLM review | `claude --print --json-schema` replaced direct anthropic SDK call. No API key needed, uses existing Claude Code auth. | 0.73 → **N/A** (not used) |
+| **gitleaks** | Yes — Gate 2 secret scanning | 0.33s per scan. Zero false positives on clean code. Binary resolution improved (shutil.which first). | 0.86 → **0.88** (upgraded) |
+| **OpenObserve** | Yes — tracing init, but spans not yet verified in UI | Container running, init_tracing() completes without error. Need to verify spans appear in dashboard. | 0.83 → **0.80** (pending verification) |
+| **Claude Code CLI** | Yes — agent spawn + Gate 4 review | `claude --print` with stdin pipe. 50-90s per agent run. Needed CLAUDECODE unset for nesting. `--json-schema` for structured review output. | **0.90** (new entry) |
+
+### Key Findings
+- **Claude Code CLI replaces both DeepEval and dmux** for TB-1 scope
+- **Pipeline timing**: 94s (bug fix, no retry) to 245s (feature, 1 retry)
+- **Gate ordering validated**: Gate 0 (0.15s) → Gate 2 (0.33s) → Gate 4 (35s). Fail-fast works.
+- **Retry loop works**: Run #4 failed Gate 0, retried with error context, succeeded.
+
 ## Scoring Process
 
 1. **Before TB-1**: Score all TB-1 tools (beads, dmux, DeepEval, gitleaks, OpenObserve)
-2. **After TB-1**: Re-score based on real usage data
+2. **After TB-1**: Re-score based on real usage data ← **DONE (2026-03-12)**
 3. **Before each TB**: Score any new tools that TB introduces
 4. **Monthly**: Re-score all tools based on accumulated experience
 
