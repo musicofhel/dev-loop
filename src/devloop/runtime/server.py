@@ -96,7 +96,8 @@ def _build_command(
 def _run_agent(config: AgentConfig) -> AgentResult:
     """Execute a Claude Code agent synchronously and return the result.
 
-    This is the TB-1 implementation: blocking subprocess.run with timeout.
+    Uses Popen + communicate(timeout=) so we can kill the child process on
+    timeout instead of leaving a zombie (C1 fix from hardening slice 1).
     """
     claude_path = _find_claude_cli()
     cmd = _build_command(claude_path, config)
@@ -109,44 +110,46 @@ def _run_agent(config: AgentConfig) -> AgentResult:
 
     start = time.monotonic()
 
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=config.worktree_path,
+        env=env,
+    )
+
     try:
-        result = subprocess.run(
-            cmd,
+        stdout, stderr = proc.communicate(
             input=config.task_prompt,
-            capture_output=True,
-            text=True,
             timeout=config.timeout_seconds,
-            cwd=config.worktree_path,
-            env=env,
         )
         elapsed = time.monotonic() - start
 
         return AgentResult(
-            exit_code=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
-            pid=None,  # subprocess.run doesn't expose PID after completion
+            exit_code=proc.returncode,
+            stdout=stdout,
+            stderr=stderr,
+            pid=proc.pid,
             duration_seconds=round(elapsed, 2),
             timed_out=False,
             worktree_path=config.worktree_path,
             model=config.model,
         )
 
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
+        # Kill the process tree — proc.kill() sends SIGKILL
+        proc.kill()
+        # Reap the zombie so it doesn't linger in the process table
+        stdout, stderr = proc.communicate()
         elapsed = time.monotonic() - start
+
         return AgentResult(
             exit_code=-1,
-            stdout=(
-                exc.stdout or ""
-                if isinstance(exc.stdout, str)
-                else (exc.stdout or b"").decode(errors="replace")
-            ),
-            stderr=(
-                exc.stderr or ""
-                if isinstance(exc.stderr, str)
-                else (exc.stderr or b"").decode(errors="replace")
-            ),
-            pid=None,
+            stdout=stdout or "",
+            stderr=stderr or "",
+            pid=proc.pid,
             duration_seconds=round(elapsed, 2),
             timed_out=True,
             worktree_path=config.worktree_path,

@@ -145,8 +145,21 @@ def build_retry_prompt(
             sections.append(issue_description.strip())
             sections.append("")
 
-        # Include ALL previous failures — not just the last one
-        for i, failure in enumerate(all_failed, 1):
+        # Cap included failures to last 2 attempts to keep prompt bounded (M7 fix).
+        # Summarize older failures with a count.
+        max_detailed = 2 * 4  # ~2 attempts × ~4 gates per attempt
+        if len(all_failed) > max_detailed:
+            older = len(all_failed) - max_detailed
+            sections.append(
+                f"*({older} older failure(s) from earlier attempts omitted — "
+                "focus on the most recent issues below.)*"
+            )
+            sections.append("")
+            display_failures = all_failed[-max_detailed:]
+        else:
+            display_failures = all_failed
+
+        for i, failure in enumerate(display_failures, 1):
             gate_name = failure.get("gate_name", "unknown")
             header = f"### Failure {i}: {gate_name} quality gate"
             sections.append(header)

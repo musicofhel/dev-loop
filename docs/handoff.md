@@ -1,8 +1,8 @@
 # dev-loop Handoff — 2026-03-12
 
-## Status: TB-3 PASSING
+## Status: HARDENING SLICES 1-5 COMPLETE
 
-TB-1, TB-2, and TB-3 are all passing.
+TB-1, TB-2, and TB-3 all passing. Hardening slices 1-5 implemented. 136 unit tests passing.
 
 ### TB-1 (Golden Path) — PASSING
 - Bug fix: 94s, all gates passed first try
@@ -66,21 +66,20 @@ just tb3 <issue_id> <repo_path>
         → Flush:     provider.force_flush() for trace verification
 ```
 
-## What's Next: TB Hardening (before TB-4)
+## Hardening Slices 1-5 — DONE
 
-Race condition audit found 3 critical, 10 medium, 8 low issues across TB-1/TB-2/TB-3.
-Organized as 6 tracer-bullet slices in `docs/tb-hardening-plan.md`.
+Race condition audit found 3 critical, 10 medium, 8 low issues. Slices 1-5 implemented:
 
-| Slice | Issue | Description | Epic |
-|-------|-------|-------------|------|
-| 1 | `dl-1kz.14` | Subprocess Lifecycle (zombie kill + JSON parse) | TB-1 |
-| 2 | `dl-1kz.15` | Heartbeat Thread Safety (join + temp leak + cache) | TB-1 |
-| 3 | `dl-ajr.7` | Seed Integrity (git check + vuln_fixed guard) | TB-3 |
-| 4 | `dl-1kz.16` | OTel Lifecycle (flush + span links + lock) | TB-1 |
-| 5 | `dl-jd4.11` | Retry Resilience (accumulate + cap + unclaim) | TB-2 |
-| 6 | `dl-1kz.17` | Low-Severity Polish (8 items) | TB-1 |
+| Slice | Issue | Description | Status |
+|-------|-------|-------------|--------|
+| 1 | `dl-1kz.14` | Subprocess Lifecycle (Popen+kill, JSON parse guard) | DONE |
+| 2 | `dl-1kz.15` | Heartbeat Thread Safety (join, temp leak fix, cached path) | DONE |
+| 3 | `dl-ajr.7` | Seed Integrity (git return codes, fail-fast, vuln_fixed guard) | DONE |
+| 4 | `dl-1kz.16` | OTel Lifecycle (TB-1 force_flush, threading lock, cleanup safety) | DONE |
+| 5 | `dl-jd4.11` | Retry Resilience (spawn fail accumulate, prompt cap, unclaim) | DONE |
+| 6 | `dl-1kz.17` | Low-Severity Polish (8 items) | TODO |
 
-Order: 1 → 2 → 3 → 4 → 5 → 6. Each slice validated e2e before moving on.
+## What's Next: Slice 6 (optional polish) then TB-4
 
 ## After Hardening: TB-4 (Cost Control)
 

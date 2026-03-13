@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import base64
 import os
+import threading
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -47,6 +48,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 # ---------------------------------------------------------------------------
 
 _provider: TracerProvider | None = None
+_provider_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -82,50 +84,56 @@ def init_tracing(
     """
     global _provider
 
+    # Double-checked locking — fast path without lock, lock only on init
     if _provider is not None:
         return _provider
 
-    # ---- resolve config from args / env / defaults ----
-    svc_name = service_name or os.getenv("OTEL_SERVICE_NAME", "dev-loop")
-    svc_version = service_version or os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
-    env = deployment_env or os.getenv("OTEL_DEPLOYMENT_ENV", "local")
+    with _provider_lock:
+        # Re-check after acquiring lock (another thread may have init'd)
+        if _provider is not None:
+            return _provider
 
-    o2_url = openobserve_url or os.getenv("OPENOBSERVE_URL", "http://localhost:5080")
-    o2_org = openobserve_org or os.getenv("OPENOBSERVE_ORG", "default")
-    o2_user = openobserve_user or os.getenv("OPENOBSERVE_USER", "admin@dev-loop.local")
-    o2_pass = openobserve_password or os.getenv("OPENOBSERVE_PASSWORD", "devloop123")
+        # ---- resolve config from args / env / defaults ----
+        svc_name = service_name or os.getenv("OTEL_SERVICE_NAME", "dev-loop")
+        svc_version = service_version or os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
+        env = deployment_env or os.getenv("OTEL_DEPLOYMENT_ENV", "local")
 
-    # ---- resource ----
-    resource = Resource.create(
-        {
-            "service.name": svc_name,
-            "service.version": svc_version,
-            "deployment.environment": env,
-        }
-    )
+        o2_url = openobserve_url or os.getenv("OPENOBSERVE_URL", "http://localhost:5080")
+        o2_org = openobserve_org or os.getenv("OPENOBSERVE_ORG", "default")
+        o2_user = openobserve_user or os.getenv("OPENOBSERVE_USER", "admin@dev-loop.local")
+        o2_pass = openobserve_password or os.getenv("OPENOBSERVE_PASSWORD", "devloop123")
 
-    # ---- exporter ----
-    # OpenObserve accepts OTLP traces at /api/{org}/v1/traces with HTTP
-    # basic auth passed as a header.
-    endpoint = f"{o2_url.rstrip('/')}/api/{o2_org}/v1/traces"
+        # ---- resource ----
+        resource = Resource.create(
+            {
+                "service.name": svc_name,
+                "service.version": svc_version,
+                "deployment.environment": env,
+            }
+        )
 
-    credentials = base64.b64encode(f"{o2_user}:{o2_pass}".encode()).decode()
-    auth_header = f"Basic {credentials}"
+        # ---- exporter ----
+        # OpenObserve accepts OTLP traces at /api/{org}/v1/traces with HTTP
+        # basic auth passed as a header.
+        endpoint = f"{o2_url.rstrip('/')}/api/{o2_org}/v1/traces"
 
-    exporter = OTLPSpanExporter(
-        endpoint=endpoint,
-        headers={"Authorization": auth_header},
-    )
+        credentials = base64.b64encode(f"{o2_user}:{o2_pass}".encode()).decode()
+        auth_header = f"Basic {credentials}"
 
-    # ---- provider + processor ----
-    _provider = TracerProvider(resource=resource)
-    _provider.add_span_processor(BatchSpanProcessor(exporter))
+        exporter = OTLPSpanExporter(
+            endpoint=endpoint,
+            headers={"Authorization": auth_header},
+        )
 
-    # Register as the global provider so that every call to
-    # ``trace.get_tracer(...)`` across the process uses it.
-    trace.set_tracer_provider(_provider)
+        # ---- provider + processor ----
+        _provider = TracerProvider(resource=resource)
+        _provider.add_span_processor(BatchSpanProcessor(exporter))
 
-    return _provider
+        # Register as the global provider so that every call to
+        # ``trace.get_tracer(...)`` across the process uses it.
+        trace.set_tracer_provider(_provider)
+
+        return _provider
 
 
 def get_tracer(name: str, version: str = "0.1.0") -> trace.Tracer:

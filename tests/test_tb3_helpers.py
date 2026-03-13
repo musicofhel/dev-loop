@@ -30,10 +30,28 @@ class TestSeedVulnerableCode:
 
     def test_seeds_vulnerable_file(self, tmp_path):
         """Copies vulnerable code into the worktree's src directory."""
+        # Initialize a git repo so git add/commit succeed
+        subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=str(tmp_path), capture_output=True, check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=str(tmp_path), capture_output=True, check=True,
+        )
         # Create a package dir to simulate prompt-bench
         pkg_dir = tmp_path / "src" / "prompt_bench"
         pkg_dir.mkdir(parents=True)
         (pkg_dir / "__init__.py").write_text("")
+        # Need an initial commit for git add to work in worktree context
+        subprocess.run(
+            ["git", "add", "-A"], cwd=str(tmp_path), capture_output=True, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "init"],
+            cwd=str(tmp_path), capture_output=True, check=True,
+        )
 
         result = _seed_vulnerable_code(str(tmp_path))
         dst = pkg_dir / "search.py"
@@ -131,10 +149,11 @@ class TestExtractSecurityFindings:
                 },
             ],
         }
-        findings = _extract_security_findings(suite)
+        findings, gate_3_ran = _extract_security_findings(suite)
         assert len(findings) == 1
         assert findings[0].cwe == "CWE-89"
         assert findings[0].file == "search.py"
+        assert gate_3_ran is True
 
     def test_ignores_non_security_gates(self):
         suite = {
@@ -148,8 +167,9 @@ class TestExtractSecurityFindings:
                 },
             ],
         }
-        findings = _extract_security_findings(suite)
+        findings, gate_3_ran = _extract_security_findings(suite)
         assert len(findings) == 0
+        assert gate_3_ran is False
 
     def test_ignores_info_findings(self):
         suite = {
@@ -163,12 +183,14 @@ class TestExtractSecurityFindings:
                 },
             ],
         }
-        findings = _extract_security_findings(suite)
+        findings, gate_3_ran = _extract_security_findings(suite)
         assert len(findings) == 0
+        assert gate_3_ran is True
 
     def test_handles_empty_suite(self):
-        findings = _extract_security_findings({})
+        findings, gate_3_ran = _extract_security_findings({})
         assert findings == []
+        assert gate_3_ran is False
 
     def test_multiple_findings(self):
         suite = {
@@ -184,10 +206,29 @@ class TestExtractSecurityFindings:
                 },
             ],
         }
-        findings = _extract_security_findings(suite)
+        findings, gate_3_ran = _extract_security_findings(suite)
         assert len(findings) == 2
         cwes = {f.cwe for f in findings}
         assert cwes == {"CWE-89", "CWE-328"}
+        assert gate_3_ran is True
+
+    def test_skipped_gate_3(self):
+        """Skipped Gate 3 returns gate_3_ran=False (M9 fix)."""
+        suite = {
+            "gate_results": [
+                {
+                    "gate_name": "gate_3_security",
+                    "passed": True,
+                    "skipped": True,
+                    "findings": [
+                        {"severity": "info", "message": "Security scan skipped for node project"},
+                    ],
+                },
+            ],
+        }
+        findings, gate_3_ran = _extract_security_findings(suite)
+        assert len(findings) == 0
+        assert gate_3_ran is False
 
 
 # ---------------------------------------------------------------------------

@@ -112,6 +112,34 @@ class TestPollReady:
 
         assert items == []
 
+    @patch("devloop.intake.beads_poller.subprocess.run")
+    def test_invalid_json(self, mock_run):
+        """poll_ready() with unparseable JSON returns [] instead of crashing."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["br", "ready", "--json"],
+            returncode=0,
+            stdout="not valid json {{{",
+            stderr="",
+        )
+
+        items = poll_ready()
+
+        assert items == []
+
+    @patch("devloop.intake.beads_poller.subprocess.run")
+    def test_empty_stdout(self, mock_run):
+        """poll_ready() with empty stdout returns [] instead of crashing."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["br", "ready", "--json"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+        items = poll_ready()
+
+        assert items == []
+
 
 # ---------------------------------------------------------------------------
 # claim_issue tests

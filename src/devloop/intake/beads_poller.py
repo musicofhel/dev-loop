@@ -112,7 +112,15 @@ def poll_ready() -> list[WorkItem]:
         logger.warning("br ready failed (exit %d): %s", result.returncode, result.stderr.strip())
         return []
 
-    issues = json.loads(result.stdout)
+    try:
+        issues = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        logger.error(
+            "Failed to parse br ready JSON: %s",
+            result.stdout[:200] if result.stdout else "(empty)",
+        )
+        return []
+
     return [
         WorkItem(
             id=issue["id"],

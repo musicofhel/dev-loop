@@ -39,7 +39,11 @@ METADATA_FILENAME = ".dev-loop-metadata.json"
 # ---------------------------------------------------------------------------
 
 
-def start_heartbeat(issue_id: str, interval_seconds: int = 30) -> threading.Event:
+def start_heartbeat(
+    issue_id: str,
+    interval_seconds: int = 30,
+    worktree_path: str | None = None,
+) -> tuple[threading.Event, threading.Thread]:
     """Start a background heartbeat thread that emits OTel spans.
 
     The thread emits a ``runtime.heartbeat`` span every *interval_seconds*,
@@ -53,11 +57,18 @@ def start_heartbeat(issue_id: str, interval_seconds: int = 30) -> threading.Even
     Args:
         issue_id: The beads issue ID this agent run is working on.
         interval_seconds: Seconds between heartbeat emissions.
+        worktree_path: Optional direct path to the worktree. If provided,
+            the metadata file is looked up directly instead of using rglob
+            on every tick.
 
     Returns:
-        A ``threading.Event`` that, when set, stops the heartbeat thread.
+        A ``(threading.Event, threading.Thread)`` tuple. Set the event to
+        stop the heartbeat. Pass both to ``stop_heartbeat`` so it can join.
     """
     stop_event = threading.Event()
+
+    # Resolve metadata path once instead of rglob on every tick (M4 fix)
+    meta_path = _resolve_metadata_path(issue_id, worktree_path)
 
     def _heartbeat_loop() -> None:
         while not stop_event.is_set():
@@ -69,8 +80,7 @@ def start_heartbeat(issue_id: str, interval_seconds: int = 30) -> threading.Even
                     "heartbeat.timestamp": time.time(),
                 },
             ):
-                # Write heartbeat timestamp to metadata file if it exists
-                _touch_metadata(issue_id)
+                _touch_metadata_path(meta_path)
 
             stop_event.wait(timeout=interval_seconds)
 
@@ -80,21 +90,30 @@ def start_heartbeat(issue_id: str, interval_seconds: int = 30) -> threading.Even
         daemon=True,
     )
     thread.start()
-    return stop_event
+    return stop_event, thread
 
 
-def stop_heartbeat(stop_event: threading.Event) -> None:
-    """Signal the heartbeat thread to stop.
+def stop_heartbeat(
+    stop_event: threading.Event,
+    thread: threading.Thread | None = None,
+    interval_seconds: int = 30,
+) -> None:
+    """Signal the heartbeat thread to stop and wait for it to exit.
 
     This sets the event, causing the heartbeat loop to exit on its next
-    iteration. The thread is daemonic, so it will not prevent process exit
-    even if ``stop_heartbeat`` is never called.
+    iteration. If a thread reference is provided, joins it to ensure the
+    thread has fully stopped before cleanup proceeds (C2 fix).
 
     Args:
         stop_event: The event returned by ``start_heartbeat``.
+        thread: The thread returned by ``start_heartbeat``. If provided,
+            ``join()`` is called to prevent races with cleanup.
+        interval_seconds: Used to compute join timeout (interval + 5s).
     """
     with tracer.start_as_current_span("runtime.heartbeat.stop"):
         stop_event.set()
+        if thread is not None:
+            thread.join(timeout=interval_seconds + 5)
 
 
 # ---------------------------------------------------------------------------
@@ -176,36 +195,70 @@ def find_stale_runs(max_age_minutes: int = 5) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _touch_metadata(issue_id: str) -> None:
-    """Update the heartbeat timestamp in the worktree metadata file.
+def _resolve_metadata_path(
+    issue_id: str, worktree_path: str | None = None
+) -> str | None:
+    """Resolve the metadata file path once at startup.
 
-    Searches for the metadata file associated with the given issue_id
-    and updates its ``last_heartbeat`` field. If no file exists yet, this
-    is a no-op (the metadata file is created at worktree setup time, not
-    by the heartbeat).
+    If *worktree_path* is given, constructs the path directly.
+    Otherwise falls back to rglob (only done once, not per tick).
     """
+    from pathlib import Path
+
+    if worktree_path:
+        candidate = Path(worktree_path) / METADATA_FILENAME
+        if candidate.is_file():
+            return str(candidate)
+        # File might not exist yet — return the expected path
+        return str(candidate)
+
     if not WORKTREE_BASE.is_dir():
-        return
+        return None
 
     for meta_path in WORKTREE_BASE.rglob(METADATA_FILENAME):
         try:
             raw = json.loads(meta_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
-
         if raw.get("issue_id") == issue_id:
-            raw["last_heartbeat"] = time.time()
+            return str(meta_path)
+
+    return None
+
+
+def _touch_metadata_path(meta_path: str | None) -> None:
+    """Update the heartbeat timestamp at a known metadata file path.
+
+    Uses atomic write (tempfile + os.replace). Catches all exceptions
+    (not just OSError) to prevent temp file leaks (M3 fix).
+    """
+    if meta_path is None:
+        return
+
+    from pathlib import Path
+
+    path = Path(meta_path)
+    if not path.is_file():
+        return
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+
+    raw["last_heartbeat"] = time.time()
+    tmp_path = None
+    try:
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=str(path.parent), suffix=".tmp"
+        )
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2)
+        os.replace(tmp_path, str(path))
+    except Exception:
+        # Catch all exceptions (not just OSError) to prevent temp file leaks
+        if tmp_path is not None:
             try:
-                tmp_fd, tmp_path = tempfile.mkstemp(
-                    dir=str(meta_path.parent), suffix=".tmp"
-                )
-                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                    json.dump(raw, f, indent=2)
-                os.replace(tmp_path, str(meta_path))
+                os.unlink(tmp_path)
             except OSError:
-                # Clean up temp file on failure
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-            return
+                pass

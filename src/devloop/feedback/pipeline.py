@@ -60,6 +60,26 @@ tracer_tb3 = trace.get_tracer("tb3", "0.1.0")
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[3] / "test-fixtures"
 
+
+def _unclaim_issue(issue_id: str) -> None:
+    """Release a claimed issue back to open status (M8 fix).
+
+    Called in finally blocks when a pipeline fails without completing
+    successfully, so the issue doesn't stay stuck as in_progress.
+    """
+    try:
+        subprocess.run(
+            ["br", "update", issue_id, "--status", "open"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        logger.info("Unclaimed issue %s (set to open)", issue_id)
+    except Exception:
+        logger.warning("Failed to unclaim issue %s", issue_id)
+
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
@@ -92,7 +112,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
     pipeline_start = time.monotonic()
 
     # Phase 5 — init tracing early so all subsequent spans are captured
-    init_tracing()
+    provider = init_tracing()
 
     with tracer.start_as_current_span(
         "tb1.run",
@@ -103,8 +123,10 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
     ) as root_span:
         # Track state for cleanup
         heartbeat_event = None
+        heartbeat_thread = None
         worktree_path: str | None = None
         persona_name: str | None = None
+        pipeline_success = False
         retries_used = 0
         max_retries = 2
 
@@ -237,7 +259,9 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 "tb1.phase.heartbeat_start",
                 attributes={"tb1.phase": "heartbeat_start"},
             ):
-                heartbeat_event = start_heartbeat(issue_id, interval_seconds=30)
+                heartbeat_event, heartbeat_thread = start_heartbeat(
+                    issue_id, interval_seconds=30, worktree_path=worktree_path,
+                )
 
             # ----------------------------------------------------------
             # Phase 7: Spawn agent in worktree
@@ -324,6 +348,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 )
                 root_span.set_attribute("tb1.outcome", "success")
                 root_span.set_status(trace.StatusCode.OK, "All gates passed")
+                pipeline_success = True
                 return TB1Result(
                     issue_id=issue_id,
                     repo_path=repo_path,
@@ -391,6 +416,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
 
                         root_span.set_attribute("tb1.outcome", "success_after_retry")
                         root_span.set_attribute("tb1.retries_used", attempt)
+                        pipeline_success = True
                         root_span.set_status(
                             trace.StatusCode.OK,
                             f"Gates passed after {attempt} retry(ies)",
@@ -409,10 +435,22 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                             duration_seconds=round(elapsed, 2),
                         ).model_dump()
 
-                    # Accumulate this retry's gate failures for the next prompt
+                    # Accumulate failures for next retry prompt (M6: include spawn failures)
                     retry_gate_raw = retry_raw.get("gate_results")
                     if retry_gate_raw:
                         all_gate_failures.append(retry_gate_raw)
+                    elif retry_raw.get("error"):
+                        # Agent spawn itself failed — synthesize a failure record
+                        all_gate_failures.append({
+                            "gate_results": [{
+                                "gate_name": "agent_spawn",
+                                "passed": False,
+                                "findings": [{
+                                    "severity": "critical",
+                                    "message": f"Agent spawn failed: {retry_raw['error']}",
+                                }],
+                            }],
+                        })
 
             # ----------------------------------------------------------
             # Phase 11: Retries exhausted -> escalate to human
@@ -486,17 +524,33 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
             # ----------------------------------------------------------
             # Phase 12: Cleanup — always runs
             # ----------------------------------------------------------
-            with tracer.start_as_current_span(
-                "tb1.phase.cleanup",
-                attributes={"tb1.phase": "cleanup"},
-            ):
-                # Stop heartbeat
-                if heartbeat_event is not None:
-                    stop_heartbeat(heartbeat_event)
+            try:
+                with tracer.start_as_current_span(
+                    "tb1.phase.cleanup",
+                    attributes={"tb1.phase": "cleanup"},
+                ):
+                    pass  # span for observability only
+            except Exception:
+                pass  # OTel failure must not block cleanup
 
-                # Cleanup worktree
-                if worktree_path:
-                    cleanup_worktree(issue_id)
+            # Stop heartbeat and join thread before cleanup
+            if heartbeat_event is not None:
+                stop_heartbeat(heartbeat_event, heartbeat_thread)
+
+            # Cleanup worktree
+            if worktree_path:
+                cleanup_worktree(issue_id)
+
+            # Unclaim issue if pipeline didn't succeed (M8 fix)
+            if not pipeline_success:
+                _unclaim_issue(issue_id)
+
+            # Flush spans (M1 fix — TB-1 was missing force_flush)
+            if provider is not None:
+                try:
+                    provider.force_flush(timeout_millis=5000)
+                except Exception:
+                    pass
 
 
 # ---------------------------------------------------------------------------
@@ -637,8 +691,10 @@ def run_tb2(
 
         # Track state for cleanup
         heartbeat_event = None
+        heartbeat_thread = None
         worktree_path: str | None = None
         persona_name: str | None = None
+        pipeline_success = False
         retries_used = 0
 
         try:
@@ -772,7 +828,9 @@ def run_tb2(
                 "tb2.phase.heartbeat_start",
                 attributes={"tb2.phase": "heartbeat_start"},
             ):
-                heartbeat_event = start_heartbeat(issue_id, interval_seconds=30)
+                heartbeat_event, heartbeat_thread = start_heartbeat(
+                    issue_id, interval_seconds=30, worktree_path=worktree_path,
+                )
 
             # ----------------------------------------------------------
             # Phase 7: Initial agent spawn
@@ -876,6 +934,7 @@ def run_tb2(
                     elapsed,
                 )
                 root_span.set_attribute("tb2.outcome", "success_first_attempt")
+                pipeline_success = True
                 root_span.set_status(
                     trace.StatusCode.OK,
                     "Gates passed on first attempt — retry path not exercised",
@@ -969,6 +1028,7 @@ def run_tb2(
                         )
 
                         root_span.set_attribute("tb2.outcome", "success_after_retry")
+                        pipeline_success = True
                         root_span.set_attribute("tb2.retries_used", attempt)
                         root_span.set_status(
                             trace.StatusCode.OK,
@@ -990,10 +1050,21 @@ def run_tb2(
                             retry_history=retry_history,
                         ).model_dump()
 
-                    # Accumulate failures for next retry prompt
+                    # Accumulate failures for next retry prompt (M6: include spawn failures)
                     retry_gate_raw = retry_raw.get("gate_results")
                     if retry_gate_raw:
                         all_gate_failures.append(retry_gate_raw)
+                    elif retry_raw.get("error"):
+                        all_gate_failures.append({
+                            "gate_results": [{
+                                "gate_name": "agent_spawn",
+                                "passed": False,
+                                "findings": [{
+                                    "severity": "critical",
+                                    "message": f"Agent spawn failed: {retry_raw['error']}",
+                                }],
+                            }],
+                        })
 
             # ----------------------------------------------------------
             # Phase 11: Retries exhausted -> escalate + verify blocked
@@ -1087,21 +1158,30 @@ def run_tb2(
             # ----------------------------------------------------------
             # Phase 12: Cleanup
             # ----------------------------------------------------------
-            with tracer_tb2.start_as_current_span(
-                "tb2.phase.cleanup",
-                attributes={"tb2.phase": "cleanup"},
-            ):
-                if heartbeat_event is not None:
-                    stop_heartbeat(heartbeat_event)
+            try:
+                with tracer_tb2.start_as_current_span(
+                    "tb2.phase.cleanup",
+                    attributes={"tb2.phase": "cleanup"},
+                ):
+                    pass
+            except Exception:
+                pass
 
-                # TB-2: keep worktree on escalation for debugging
-                if worktree_path and not retries_used >= max_retries:
-                    cleanup_worktree(issue_id)
-                elif worktree_path:
-                    logger.info(
-                        "TB-2: Preserving worktree at %s for post-mortem",
-                        worktree_path,
-                    )
+            if heartbeat_event is not None:
+                stop_heartbeat(heartbeat_event, heartbeat_thread)
+
+            # TB-2: keep worktree on escalation for debugging
+            if worktree_path and not retries_used >= max_retries:
+                cleanup_worktree(issue_id)
+            elif worktree_path:
+                logger.info(
+                    "TB-2: Preserving worktree at %s for post-mortem",
+                    worktree_path,
+                )
+
+            # Unclaim issue if pipeline didn't succeed (M8 fix)
+            if not pipeline_success:
+                _unclaim_issue(issue_id)
 
             # Force flush OTel spans so they're available for verification
             if provider is not None:
@@ -1148,19 +1228,36 @@ def _seed_vulnerable_code(worktree_path: str) -> bool:
     logger.info("Seeded TB-3 vulnerable code → %s", dst)
 
     # Commit the seeded file so Gate 0 sees committed changes and
-    # Gate 3 scans committed code (agent's fix will be a separate commit)
-    subprocess.run(
-        ["git", "add", str(dst)],
-        cwd=worktree_path,
-        capture_output=True,
-        check=False,
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "Add user search endpoint (seeded for TB-3)"],
-        cwd=worktree_path,
-        capture_output=True,
-        check=False,
-    )
+    # Gate 3 scans committed code (agent's fix will be a separate commit).
+    # Check return codes — silent git failure = false positive (C3 fix).
+    try:
+        add_r = subprocess.run(
+            ["git", "add", str(dst)],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if add_r.returncode != 0:
+            logger.error("git add failed for seeded file: %s", add_r.stderr.strip())
+            return False
+
+        commit_r = subprocess.run(
+            ["git", "commit", "-m", "Add user search endpoint (seeded for TB-3)"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if commit_r.returncode != 0:
+            logger.error("git commit failed for seeded file: %s", commit_r.stderr.strip())
+            return False
+    except subprocess.TimeoutExpired:
+        logger.error("git command timed out during seed")
+        return False
+
     return True
 
 
@@ -1214,11 +1311,22 @@ def _make_forced_security_failure() -> dict:
     ).model_dump()
 
 
-def _extract_security_findings(gate_suite_dict: dict) -> list[SecurityFinding]:
-    """Extract security findings from a gate suite result."""
+def _extract_security_findings(gate_suite_dict: dict) -> tuple[list[SecurityFinding], bool]:
+    """Extract security findings from a gate suite result.
+
+    Returns:
+        A tuple of (findings, gate_3_ran). gate_3_ran is False if Gate 3
+        was not found or was skipped — callers must not treat empty findings
+        as "vulnerability fixed" in that case (M9/M10 fix).
+    """
     findings: list[SecurityFinding] = []
+    gate_3_found = False
+    gate_3_skipped = False
+
     for gate_result in gate_suite_dict.get("gate_results", []):
         if gate_result.get("gate_name") == "gate_3_security":
+            gate_3_found = True
+            gate_3_skipped = gate_result.get("skipped", False)
             for f in gate_result.get("findings", []):
                 if f.get("severity") in ("critical", "warning"):
                     findings.append(
@@ -1231,7 +1339,14 @@ def _extract_security_findings(gate_suite_dict: dict) -> list[SecurityFinding]:
                             rule=f.get("rule"),
                         )
                     )
-    return findings
+
+    if not gate_3_found:
+        logger.warning(
+            "_extract_security_findings: gate_3_security not found in gate results"
+        )
+
+    gate_3_ran = gate_3_found and not gate_3_skipped
+    return findings, gate_3_ran
 
 
 # ---------------------------------------------------------------------------
@@ -1287,8 +1402,10 @@ def run_tb3(
 
         # Track state for cleanup
         heartbeat_event = None
+        heartbeat_thread = None
         worktree_path: str | None = None
         persona_name: str | None = None
+        pipeline_success = False
         retries_used = 0
 
         try:
@@ -1390,6 +1507,11 @@ def run_tb3(
                 if force_vuln_seed:
                     seeded = _seed_vulnerable_code(worktree_path)
                     seed_span.set_attribute("tb3.vuln_seeded", seeded)
+                    if not seeded:
+                        raise RuntimeError(
+                            "TB-3 forced mode: _seed_vulnerable_code failed — "
+                            "cannot proceed without seeded vulnerability"
+                        )
                 else:
                     seed_span.set_attribute("tb3.vuln_seeded", False)
 
@@ -1430,7 +1552,9 @@ def run_tb3(
                 "tb3.phase.heartbeat_start",
                 attributes={"tb3.phase": "heartbeat_start"},
             ):
-                heartbeat_event = start_heartbeat(issue_id, interval_seconds=30)
+                heartbeat_event, heartbeat_thread = start_heartbeat(
+                    issue_id, interval_seconds=30, worktree_path=worktree_path,
+                )
 
             # ----------------------------------------------------------
             # Phase 7: Pre-flight gate scan (catches seeded vulnerability)
@@ -1475,7 +1599,7 @@ def run_tb3(
                     gates_span.set_attribute("tb3.first_failure", gate_suite.first_failure)
 
                 # Extract security findings for result tracking
-                security_findings = _extract_security_findings(gate_raw)
+                security_findings, _gate_3_ran = _extract_security_findings(gate_raw)
                 cwe_ids = list({f.cwe for f in security_findings if f.cwe})
 
                 if cwe_ids:
@@ -1506,6 +1630,7 @@ def run_tb3(
                     elapsed,
                 )
                 root_span.set_attribute("tb3.outcome", "no_vulnerability_detected")
+                pipeline_success = True
                 root_span.set_status(
                     trace.StatusCode.OK,
                     "Pre-flight scan found no vulnerability",
@@ -1584,13 +1709,22 @@ def run_tb3(
                     retry_success = retry_raw.get("success", False)
                     retry_span.set_attribute("tb3.retry_success", retry_success)
 
-                    # Check if security findings are now fixed
+                    # Check if security findings are now fixed.
+                    # vuln_fixed is only true if Gate 3 actually ran AND
+                    # found zero issues (M9 fix: skipped Gate 3 ≠ fixed).
                     retry_gate_results = retry_raw.get("gate_results")
                     retry_sec_findings: list[SecurityFinding] = []
+                    retry_gate_3_ran = False
                     if retry_gate_results:
-                        retry_sec_findings = _extract_security_findings(retry_gate_results)
+                        retry_sec_findings, retry_gate_3_ran = _extract_security_findings(
+                            retry_gate_results
+                        )
 
-                    vuln_fixed = len(retry_sec_findings) == 0 and len(security_findings) > 0
+                    vuln_fixed = (
+                        retry_gate_3_ran
+                        and len(retry_sec_findings) == 0
+                        and len(security_findings) > 0
+                    )
                     retry_span.set_attribute("tb3.vulnerability_fixed", vuln_fixed)
 
                     # Record this attempt
@@ -1620,6 +1754,7 @@ def run_tb3(
                         )
 
                         root_span.set_attribute("tb3.outcome", "success_after_retry")
+                        pipeline_success = True
                         root_span.set_attribute("tb3.retries_used", attempt)
                         root_span.set_attribute("tb3.vulnerability_fixed", vuln_fixed)
                         root_span.set_status(
@@ -1645,9 +1780,20 @@ def run_tb3(
                             retry_history=retry_history,
                         ).model_dump()
 
-                    # Accumulate failures for next retry prompt
+                    # Accumulate failures for next retry prompt (M6: include spawn failures)
                     if retry_gate_results:
                         all_gate_failures.append(retry_gate_results)
+                    elif retry_raw.get("error"):
+                        all_gate_failures.append({
+                            "gate_results": [{
+                                "gate_name": "agent_spawn",
+                                "passed": False,
+                                "findings": [{
+                                    "severity": "critical",
+                                    "message": f"Agent spawn failed: {retry_raw['error']}",
+                                }],
+                            }],
+                        })
 
             # ----------------------------------------------------------
             # Phase 11: Retries exhausted -> escalate
@@ -1733,21 +1879,30 @@ def run_tb3(
             # ----------------------------------------------------------
             # Phase 12: Cleanup
             # ----------------------------------------------------------
-            with tracer_tb3.start_as_current_span(
-                "tb3.phase.cleanup",
-                attributes={"tb3.phase": "cleanup"},
-            ):
-                if heartbeat_event is not None:
-                    stop_heartbeat(heartbeat_event)
+            try:
+                with tracer_tb3.start_as_current_span(
+                    "tb3.phase.cleanup",
+                    attributes={"tb3.phase": "cleanup"},
+                ):
+                    pass
+            except Exception:
+                pass
 
-                # Keep worktree on escalation for debugging
-                if worktree_path and not retries_used >= max_retries:
-                    cleanup_worktree(issue_id)
-                elif worktree_path:
-                    logger.info(
-                        "TB-3: Preserving worktree at %s for security post-mortem",
-                        worktree_path,
-                    )
+            if heartbeat_event is not None:
+                stop_heartbeat(heartbeat_event, heartbeat_thread)
+
+            # Keep worktree on escalation for debugging
+            if worktree_path and not retries_used >= max_retries:
+                cleanup_worktree(issue_id)
+            elif worktree_path:
+                logger.info(
+                    "TB-3: Preserving worktree at %s for security post-mortem",
+                    worktree_path,
+                )
+
+            # Unclaim issue if pipeline didn't succeed (M8 fix)
+            if not pipeline_success:
+                _unclaim_issue(issue_id)
 
             # Force flush OTel spans
             if provider is not None:
