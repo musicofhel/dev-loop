@@ -66,7 +66,23 @@ just tb3 <issue_id> <repo_path>
         → Flush:     provider.force_flush() for trace verification
 ```
 
-## What's Next: TB-4 (Cost Control)
+## What's Next: TB Hardening (before TB-4)
+
+Race condition audit found 3 critical, 10 medium, 8 low issues across TB-1/TB-2/TB-3.
+Organized as 6 tracer-bullet slices in `docs/tb-hardening-plan.md`.
+
+| Slice | Issue | Description | Epic |
+|-------|-------|-------------|------|
+| 1 | `dl-1kz.14` | Subprocess Lifecycle (zombie kill + JSON parse) | TB-1 |
+| 2 | `dl-1kz.15` | Heartbeat Thread Safety (join + temp leak + cache) | TB-1 |
+| 3 | `dl-ajr.7` | Seed Integrity (git check + vuln_fixed guard) | TB-3 |
+| 4 | `dl-1kz.16` | OTel Lifecycle (flush + span links + lock) | TB-1 |
+| 5 | `dl-jd4.11` | Retry Resilience (accumulate + cap + unclaim) | TB-2 |
+| 6 | `dl-1kz.17` | Low-Severity Polish (8 items) | TB-1 |
+
+Order: 1 → 2 → 3 → 4 → 5 → 6. Each slice validated e2e before moving on.
+
+## After Hardening: TB-4 (Cost Control)
 
 TB-4 proves token spend is visible and controllable. Runaway agents get killed, not just logged.
 
