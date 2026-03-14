@@ -140,6 +140,55 @@ class TB3Result(BaseModel):
     )
 
 
+class UsageBreakdown(BaseModel):
+    """Per-attempt usage stats for TB-4 turn/token tracking."""
+
+    attempt: int
+    num_turns: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cumulative_turns: int = 0
+
+
+class TB4Result(BaseModel):
+    """Result of a full TB-4 pipeline run (Runaway-to-Stop)."""
+
+    issue_id: str
+    repo_path: str
+    success: bool
+    phase: str = Field(
+        description="Last phase completed (or failed at).",
+    )
+    worktree_path: str | None = None
+    persona: str | None = None
+    retries_used: int = 0
+    max_retries: int = 0
+    escalated: bool = False
+    error: str | None = None
+    duration_seconds: float = 0.0
+    # TB-4 specific fields
+    trace_id: str | None = Field(
+        default=None,
+        description="Root OTel trace ID for trace verification.",
+    )
+    attempt_span_ids: list[str] = Field(
+        default_factory=list,
+        description="Span IDs per attempt for linked trace verification.",
+    )
+    turns_used_total: int = Field(
+        default=0,
+        description="Total agentic turns consumed across all attempts.",
+    )
+    max_turns_total: int = Field(
+        default=0,
+        description="Total turn budget from persona config (or override).",
+    )
+    usage_breakdown: list[UsageBreakdown] = Field(
+        default_factory=list,
+        description="Per-attempt turn/token breakdown.",
+    )
+
+
 class RetryAttempt(BaseModel):
     """Summary of a single retry attempt for TB-2 tracking."""
 
@@ -148,6 +197,52 @@ class RetryAttempt(BaseModel):
     gates_passed: bool = False
     first_failure: str | None = None
     span_id: str | None = None
+
+
+class TB5Result(BaseModel):
+    """Result of a full TB-5 pipeline run (Cross-Repo Cascade)."""
+
+    issue_id: str
+    repo_path: str
+    success: bool
+    phase: str = Field(
+        description="Last phase completed (or failed at).",
+    )
+    error: str | None = None
+    duration_seconds: float = 0.0
+    # TB-5 specific fields
+    target_repo_path: str = Field(
+        default="",
+        description="Absolute path to the target repository.",
+    )
+    target_issue_id: str | None = Field(
+        default=None,
+        description="Beads issue ID created in the target repo for the cascade.",
+    )
+    changed_files: list[str] = Field(
+        default_factory=list,
+        description="Files changed on the source branch (git diff).",
+    )
+    matched_watches: list[str] = Field(
+        default_factory=list,
+        description="Watch glob patterns that matched changed files.",
+    )
+    dependency_type: str | None = Field(
+        default=None,
+        description="Dependency type from config (e.g. 'api-contract').",
+    )
+    cascade_skipped: bool = Field(
+        default=False,
+        description="True if no watch patterns matched (cascade not needed).",
+    )
+    tb1_result: dict | None = Field(
+        default=None,
+        description="Full TB-1 result from running the cascade pipeline on the target repo.",
+    )
+    source_comment_added: bool = Field(
+        default=False,
+        description="True if an outcome comment was added to the source issue.",
+    )
 
 
 class TB2Result(BaseModel):

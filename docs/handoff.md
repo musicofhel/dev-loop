@@ -1,8 +1,8 @@
-# dev-loop Handoff — 2026-03-12
+# dev-loop Handoff — 2026-03-13
 
-## Status: HARDENING SLICES 1-5 COMPLETE
+## Status: TB-5 CODE COMPLETE
 
-TB-1, TB-2, and TB-3 all passing. Hardening slices 1-5 implemented. 136 unit tests passing.
+TB-1 through TB-5 all implemented. 207 unit tests passing.
 
 ### TB-1 (Golden Path) — PASSING
 - Bug fix: 94s, all gates passed first try
@@ -17,81 +17,92 @@ TB-1, TB-2, and TB-3 all passing. Hardening slices 1-5 implemented. 136 unit tes
 - **Seeded mode**: 55s — pre-seeded CWE-89 → Gate 3 caught it → agent fixed → clean scan
 - Pre-flight gate scan: Gate 3 detected 2 SQL injection findings (B608 CWE-89)
 - Agent used parameterized queries on retry, vulnerability_fixed=true
-- 121 unit tests passing
 
-## What Was Done This Session
+### TB-4 (Runaway-to-Stop) — CODE COMPLETE
+- Turn-based control via `--max-turns N` + `--output-format json`
+- Per-persona turn budgets in agents.yaml (10-25 turns)
+- Usage tracking: num_turns, input_tokens, output_tokens per attempt
+- Turn budget decrements across retries (remaining = max - used)
+- Escalation comment includes per-attempt usage breakdown table
+- `just tb4 <issue_id> <repo_path>` / `just tb4-turns <issue_id> <repo_path> 5`
 
-### 1. Implemented Gate 3: Security SAST Scan
-Added `run_gate_3_security()` to `src/devloop/gates/server.py`:
-- Uses bandit for Python SAST scanning
-- Parses JSON output into `Finding` objects with CWE classification
-- Maps bandit severity (HIGH/MEDIUM) to critical findings
-- CWE IDs as OTel span attributes for observability
-- Gracefully skips if bandit not installed or project is non-Python
+#### TB-4 Files Changed
 
-### 2. Updated run_all_gates() sequence
-Gate order: 0 (sanity) → 2 (secrets) → 3 (security) → 4 (review).
-Gate 3 is fail-fast like others. Skipped gates don't block the suite.
+| File | What Changed |
+|------|-------------|
+| `runtime/types.py` | `AgentConfig.max_turns`, `AgentResult.{num_turns, input_tokens, output_tokens}` |
+| `runtime/server.py` | `_parse_usage_from_output()`, `--output-format json` + `--max-turns` in `_build_command`, usage on OTel spans |
+| `orchestration/types.py` | `PersonaConfig.max_turns_default: int = 15` |
+| `orchestration/server.py` | `select_persona()` extracts `max_turns_default` from agents.yaml |
+| `config/agents.yaml` | `max_turns_default` per persona (bug-fix:10, feature:25, refactor:20, security-fix:15, docs:10) |
+| `feedback/types.py` | `TB4Result`, `UsageBreakdown` |
+| `feedback/pipeline.py` | `run_tb4()` — full pipeline with turn budget, 12 phases |
+| `feedback/server.py` | `retry_agent()` accepts + passes `max_turns`, returns usage stats; `escalate_to_human()` renders usage table |
+| `justfile` | `tb4`, `tb4-turns` commands |
+| `tests/test_tb4.py` | 12 tests: types, config, escalation table |
+| `tests/test_runtime.py` | 15 tests: `_parse_usage_from_output`, `_build_command`, usage wiring |
+| `tests/test_orchestration.py` | 5 tests: `select_persona` returns correct `max_turns_default` per persona |
 
-### 3. TB-3 pipeline with pre-flight scan
-`run_tb3()` in `src/devloop/feedback/pipeline.py`:
-- Seeds vulnerable code + commits it before agent runs
-- Pre-flight gate scan catches the vulnerability (Gate 3)
-- Agent gets security findings as retry context
-- Agent fixes with parameterized queries
-- Re-run gates verify the fix
-
-### 4. Bug fixes from first e2e attempt
-- **Gate 0 merge-base**: `HEAD~10` fails for short git histories — replaced with safe lookback based on `git rev-list --count`
-- **retry_agent model**: Added `model` parameter to `retry_agent()` so retries use the correct model (opus for security-fix persona)
-- **Seed commit**: `_seed_vulnerable_code()` now commits the seeded file so Gate 0 detects changes and Gate 3 scans committed code
-
-## Architecture (TB-3 flow)
+## Architecture (TB-4 flow)
 
 ```
-just tb3 <issue_id> <repo_path>
-    → run_tb3() in feedback/pipeline.py
+just tb4 <issue_id> <repo_path>
+    → run_tb4() in feedback/pipeline.py
         → Phase 1:   poll_ready() — br ready --json
         → Phase 2:   claim_issue() — br update --claim
         → Phase 3:   setup_worktree() — git worktree add
-        → Phase 3.5: seed_vulnerable_code() — copy CWE-89 fixture + git commit
-        → Phase 4:   select_persona() — security-fix persona (retry_max=3)
+        → Phase 4:   select_persona() — get max_turns_default from persona
         → Phase 5:   init_tracing() — OTel → OpenObserve
         → Phase 6:   start_heartbeat() — background thread
-        → Phase 7:   run_all_gates() — pre-flight scan (Gate 3 catches vuln)
-        → Phase 8:   gates pass? → success (no vulnerability detected)
-        → Phase 9:   gates fail → retry: agent gets CWE context → fixes → re-run gates
-        → Phase 10:  retries exhausted → escalate to human
-        → Phase 11:  cleanup — stop heartbeat, preserve worktree on escalation
-        → Flush:     provider.force_flush() for trace verification
+        → Phase 7:   spawn_agent(max_turns=remaining) — agent runs with turn cap
+        → Phase 8:   remaining > 0? → run_all_gates()
+        → Phase 9:   gates pass → success with usage stats
+        → Phase 10:  gates fail → retry with remaining turn budget
+        → Phase 11:  turns exhausted or retries exhausted → escalate with usage table
+        → Phase 12:  cleanup — stop heartbeat, flush OTel
 ```
 
-## Hardening Slices 1-5 — DONE
+### TB-5 (Cross-Repo Cascade) — CODE COMPLETE
+- Changes in source repo matched against `config/dependencies.yaml` watch patterns
+- Cascade issue created in beads with `--parent <source_id>` + `cascade,repo:<target>` labels
+- Delegates to `run_tb1()` for target repo work — no duplicate logic
+- Outcome reported back to source issue via `br comments add`
+- "No match" is a success (`cascade_skipped=True`), not a failure
+- OTel context propagation: TB-1 spans are children of `tb5.phase.cascade_tb1`
+- `just tb5 <source_issue_id> <source_repo_path> <target_repo_path>`
 
-Race condition audit found 3 critical, 10 medium, 8 low issues. Slices 1-5 implemented:
+#### TB-5 Files Changed
 
-| Slice | Issue | Description | Status |
-|-------|-------|-------------|--------|
-| 1 | `dl-1kz.14` | Subprocess Lifecycle (Popen+kill, JSON parse guard) | DONE |
-| 2 | `dl-1kz.15` | Heartbeat Thread Safety (join, temp leak fix, cached path) | DONE |
-| 3 | `dl-ajr.7` | Seed Integrity (git return codes, fail-fast, vuln_fixed guard) | DONE |
-| 4 | `dl-1kz.16` | OTel Lifecycle (TB-1 force_flush, threading lock, cleanup safety) | DONE |
-| 5 | `dl-jd4.11` | Retry Resilience (spawn fail accumulate, prompt cap, unclaim) | DONE |
-| 6 | `dl-1kz.17` | Low-Severity Polish (8 items) | TODO |
+| File | What Changed |
+|------|-------------|
+| `feedback/types.py` | `TB5Result` — target_repo_path, target_issue_id, changed_files, matched_watches, dependency_type, cascade_skipped, tb1_result, source_comment_added |
+| `feedback/pipeline.py` | 6 helpers (`_load_dependency_map`, `_get_changed_files`, `_match_watches`, `_get_source_issue_details`, `_create_cascade_issue`, `_report_cascade_outcome`) + `run_tb5()` — 8-phase pipeline |
+| `justfile` | `tb5` command with 3 args (source_issue, source_repo, target_repo) |
+| `tests/test_tb5.py` | 31 tests: types, dependency loading, git diff, glob matching, issue creation, outcome reporting, list response handling |
+| `docs/tracer-bullets.md` | TB-5 section updated with actual design |
+| `config/dependencies.yaml` | Already existed — prompt-bench→backend, backend→mobile |
 
-## What's Next: Slice 6 (optional polish) then TB-4
+## Architecture (TB-5 flow)
 
-## After Hardening: TB-4 (Cost Control)
+```
+just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
+    → run_tb5() in feedback/pipeline.py
+        → Phase 1:   _get_source_issue_details() — br show --format json
+        → Phase 2:   _get_changed_files() — git diff main..dl/<id> --name-only
+        → Phase 3:   _load_dependency_map() + _match_watches() — fnmatch globs
+        → [early return if cascade_skipped]
+        → Phase 4:   init_tracing() — OTel → OpenObserve
+        → Phase 5:   _create_cascade_issue() — br create --parent --silent
+        → Phase 6:   run_tb1(target_issue_id, target_repo_path) — full TB-1
+        → Phase 7:   _report_cascade_outcome() — br comments add
+        → Phase 8:   cleanup — flush OTel
+```
 
-TB-4 proves token spend is visible and controllable. Runaway agents get killed, not just logged.
+## What's Next: TB-6 (Session Replay)
 
-Key areas:
-1. Token proxy between agent and LLM API
-2. Cost gate: checks total spend before PR creation
-3. Real-time cost dashboard in OpenObserve
-4. Kill signal on budget exceeded
+TB-6 proves session replay + debugging. Requires TB-2 passing.
 
-After TB-4: TB-5 (cross-repo), TB-6 (session replay).
+After TB-6: scoring rubric evaluation.
 
 ## Key Gotchas
 - `br show --format json` returns a JSON array (list), not a dict
@@ -100,5 +111,15 @@ After TB-4: TB-5 (cross-repo), TB-6 (session replay).
 - Gate 3 skips gracefully if bandit not installed or project is non-Python
 - bandit exit code 1 = issues found (not an error), exit code 2 = actual error
 - Pre-seeded vulnerable code is committed in worktree before agent runs
-- `retry_agent()` must pass `model` param to match persona's model
+- `retry_agent()` must pass `model` AND `max_turns` params
 - `provider.force_flush()` needed after pipeline to ensure spans export
+- `kill_agent` validates PID belongs to claude before SIGTERM
+- Heartbeat spans are detached from pipeline context (root spans)
+- `select_persona()` must extract `max_turns_default` from YAML (not just Pydantic default)
+- `--output-format json` is now always on — stdout is NDJSON, not plain text
+- `retry_agent()` returns usage stats (`num_turns`, `input_tokens`, `output_tokens`) injected into the result dict
+- TB-5 uses `fnmatch` (not `pathlib.match`) — `fnmatch` doesn't treat `/` specially so `src/api/**` matches `src/api/v2/deep/file.py`
+- TB-5 `init_tracing()` is called after dependency matching (Phase 4) but the call is idempotent, so the nested `run_tb1()` call is safe
+- TB-5 cascade skip is a success (`cascade_skipped=True`), not an error — no issue created, just a comment on source
+- TB-5 `_report_cascade_outcome()` must use `--message` flag with `br comments add` (bug fix: was passing message as positional arg)
+- TB-5 `_get_source_issue_details()` must handle `br show --format json` returning a list (bug fix: was assuming dict)

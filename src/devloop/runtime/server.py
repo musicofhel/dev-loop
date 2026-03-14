@@ -12,6 +12,7 @@ Run standalone:  uv run python -m devloop.runtime.server
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -83,14 +84,60 @@ def _build_command(
     cmd = [
         claude_path,
         "--print",
+        "--output-format",
+        "json",
         "--model",
         config.model,
     ]
+
+    if config.max_turns is not None:
+        cmd.extend(["--max-turns", str(config.max_turns)])
 
     tools = config.allowed_tools if config.allowed_tools else DEFAULT_ALLOWED_TOOLS
     cmd.extend(["--allowedTools", ",".join(tools)])
 
     return cmd
+
+
+def _is_claude_process(pid: int) -> bool:
+    """Check if PID belongs to a claude CLI process via /proc/{pid}/cmdline.
+
+    Returns False if the process doesn't exist, isn't readable, or isn't
+    a claude process. This prevents kill_agent from sending SIGTERM to
+    unrelated processes that happen to reuse a stale PID (L1 fix).
+    """
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+        # /proc/PID/cmdline uses null bytes as separators
+        return b"claude" in cmdline
+    except (OSError, PermissionError):
+        return False
+
+
+def _parse_usage_from_output(stdout: str) -> dict:
+    """Parse usage stats from --output-format json NDJSON output.
+
+    Scans for the ``{"type":"result"}`` line and extracts ``num_turns``,
+    ``input_tokens``, and ``output_tokens``.  Returns a dict with those
+    keys (all defaulting to 0 on parse failure).
+    """
+    result: dict = {"num_turns": 0, "input_tokens": 0, "output_tokens": 0}
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("type") != "result":
+            continue
+        result["num_turns"] = obj.get("num_turns", 0)
+        usage = obj.get("usage") or {}
+        result["input_tokens"] = usage.get("input_tokens", 0)
+        result["output_tokens"] = usage.get("output_tokens", 0)
+        break  # only need the first result line
+    return result
 
 
 def _run_agent(config: AgentConfig) -> AgentResult:
@@ -127,6 +174,8 @@ def _run_agent(config: AgentConfig) -> AgentResult:
         )
         elapsed = time.monotonic() - start
 
+        usage = _parse_usage_from_output(stdout)
+
         return AgentResult(
             exit_code=proc.returncode,
             stdout=stdout,
@@ -136,6 +185,9 @@ def _run_agent(config: AgentConfig) -> AgentResult:
             timed_out=False,
             worktree_path=config.worktree_path,
             model=config.model,
+            num_turns=usage["num_turns"],
+            input_tokens=usage["input_tokens"],
+            output_tokens=usage["output_tokens"],
         )
 
     except subprocess.TimeoutExpired:
@@ -178,6 +230,7 @@ def spawn_agent(
     model: str = "sonnet",
     allowed_tools: list[str] | None = None,
     cost_ceiling: float = DEFAULT_COST_CEILING,
+    max_turns: int | None = None,
 ) -> dict:
     """Spawn a Claude Code agent in a worktree and return its output."""
     config = AgentConfig(
@@ -186,6 +239,7 @@ def spawn_agent(
         model=model,
         allowed_tools=allowed_tools,
         cost_ceiling=cost_ceiling,
+        max_turns=max_turns,
     )
 
     with tracer.start_as_current_span(
@@ -238,6 +292,9 @@ def spawn_agent(
         span.set_attribute("runtime.duration_seconds", result.duration_seconds)
         span.set_attribute("runtime.output_length", len(result.stdout))
         span.set_attribute("runtime.timed_out", result.timed_out)
+        span.set_attribute("runtime.num_turns", result.num_turns)
+        span.set_attribute("runtime.input_tokens", result.input_tokens)
+        span.set_attribute("runtime.output_tokens", result.output_tokens)
 
         if result.exit_code == 0:
             span.set_status(trace.StatusCode.OK)
@@ -260,13 +317,30 @@ def spawn_agent(
     tags={"runtime", "kill"},
 )
 def kill_agent(pid: int) -> dict:
-    """Send SIGTERM to a running agent process."""
+    """Send SIGTERM to a running agent process.
+
+    Validates that the PID belongs to a claude process before sending the
+    signal to prevent accidentally killing unrelated processes (L1 fix).
+    """
     with tracer.start_as_current_span(
         "runtime.kill_agent",
         attributes={
             "runtime.target_pid": pid,
         },
     ) as span:
+        # Validate PID belongs to a claude process before killing (L1 fix)
+        if not _is_claude_process(pid):
+            error_msg = (
+                f"PID {pid} is not a claude process — refusing to send SIGTERM"
+            )
+            span.set_status(trace.StatusCode.ERROR, error_msg)
+            return {
+                "success": False,
+                "pid": pid,
+                "signal": "SIGTERM",
+                "message": error_msg,
+            }
+
         try:
             os.kill(pid, signal.SIGTERM)
             span.set_status(trace.StatusCode.OK)

@@ -87,17 +87,27 @@ tb3-organic ISSUE_ID REPO_PATH:
     @echo "Issue: {{ISSUE_ID}} | Repo: {{REPO_PATH}}"
     uv run python -c "from devloop.feedback.pipeline import run_tb3; import json; print(json.dumps(run_tb3('{{ISSUE_ID}}', '{{REPO_PATH}}', force_vuln_seed=False), indent=2))"
 
-# TB-4: Cost control (budget path)
-tb4 *ARGS:
-    @echo "Running TB-4: Cost-Spike-to-Pause"
-    @echo "Requires: TB-1 passing"
-    @echo "Args: {{ARGS}}"
+# TB-4: Runaway-to-stop (turn control path)
+# Usage: just tb4 <issue_id> <repo_path>
+tb4 ISSUE_ID REPO_PATH:
+    @echo "Running TB-4: Runaway-to-Stop"
+    @echo "Issue: {{ISSUE_ID}} | Repo: {{REPO_PATH}}"
+    uv run python -c "from devloop.feedback.pipeline import run_tb4; import json; print(json.dumps(run_tb4('{{ISSUE_ID}}', '{{REPO_PATH}}'), indent=2))"
+
+# TB-4 with explicit turn limit override
+# Usage: just tb4-turns <issue_id> <repo_path> <max_turns>
+tb4-turns ISSUE_ID REPO_PATH MAX_TURNS:
+    @echo "Running TB-4: Runaway-to-Stop (turn limit: {{MAX_TURNS}})"
+    @echo "Issue: {{ISSUE_ID}} | Repo: {{REPO_PATH}}"
+    uv run python -c "from devloop.feedback.pipeline import run_tb4; import json; print(json.dumps(run_tb4('{{ISSUE_ID}}', '{{REPO_PATH}}', turns_override={{MAX_TURNS}}), indent=2))"
 
 # TB-5: Cross-repo cascade (multi-project path)
-tb5 *ARGS:
+# Usage: just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
+# Example: just tb5 dl-abc ~/prompt-bench ~/omniswipe-backend
+tb5 SOURCE_ISSUE SOURCE_REPO TARGET_REPO:
     @echo "Running TB-5: Cross-Repo Cascade"
-    @echo "Requires: TB-1 passing on 2+ repos"
-    @echo "Args: {{ARGS}}"
+    @echo "Source: {{SOURCE_ISSUE}} | {{SOURCE_REPO}} → {{TARGET_REPO}}"
+    uv run python -c "from devloop.feedback.pipeline import run_tb5; import json; print(json.dumps(run_tb5('{{SOURCE_ISSUE}}', '{{SOURCE_REPO}}', '{{TARGET_REPO}}'), indent=2))"
 
 # TB-6: Session replay (observability path)
 tb6 *ARGS:

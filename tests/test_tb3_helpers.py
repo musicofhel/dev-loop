@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from devloop.feedback.pipeline import (
     _extract_security_findings,
+    _latest_failure_gate,
     _make_forced_security_failure,
     _seed_vulnerable_code,
     _span_id_hex,
@@ -440,3 +441,63 @@ class TestSecurityFinding:
         assert f.cwe == "CWE-89"
         assert f.file == "search.py"
         assert f.fixed is True
+
+
+# ---------------------------------------------------------------------------
+# _latest_failure_gate tests (L8 fix)
+# ---------------------------------------------------------------------------
+
+
+class TestLatestFailureGate:
+    """Tests for _latest_failure_gate() — retry log message accuracy."""
+
+    def test_empty_failures(self):
+        assert _latest_failure_gate([]) is None
+
+    def test_suite_result_with_first_failure(self):
+        failures = [{"first_failure": "gate_0_sanity", "gate_results": []}]
+        assert _latest_failure_gate(failures) == "gate_0_sanity"
+
+    def test_suite_result_with_gate_results(self):
+        failures = [{
+            "gate_results": [
+                {"gate_name": "gate_0_sanity", "passed": True},
+                {"gate_name": "gate_3_security", "passed": False},
+            ],
+        }]
+        assert _latest_failure_gate(failures) == "gate_3_security"
+
+    def test_single_gate_result(self):
+        failures = [{"gate_name": "agent_spawn", "passed": False}]
+        assert _latest_failure_gate(failures) == "agent_spawn"
+
+    def test_uses_last_entry(self):
+        """Returns the failure from the most recent (last) entry."""
+        failures = [
+            {"first_failure": "gate_0_sanity"},
+            {"first_failure": "gate_3_security"},
+        ]
+        assert _latest_failure_gate(failures) == "gate_3_security"
+
+
+# ---------------------------------------------------------------------------
+# Gate 3 bandit timeout test (L4 fix)
+# ---------------------------------------------------------------------------
+
+
+class TestGate3BanditTimeout:
+    """Tests for Gate 3 handling bandit TimeoutExpired."""
+
+    @patch("devloop.gates.server._run_cmd")
+    @patch("devloop.gates.server._find_bandit", return_value="/usr/bin/bandit")
+    def test_handles_bandit_timeout(self, mock_bandit, mock_run, tmp_path):
+        """Gate 3 fails gracefully on bandit timeout."""
+        (tmp_path / "pyproject.toml").write_text("[project]\nname='test'\n")
+        (tmp_path / "src").mkdir()
+        mock_run.side_effect = subprocess.TimeoutExpired(
+            cmd=["bandit"], timeout=120
+        )
+        result = run_gate_3_security(str(tmp_path))
+        gate = GateResult(**result)
+        assert gate.passed is False
+        assert "timed out" in gate.findings[0].message

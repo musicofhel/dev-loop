@@ -92,6 +92,8 @@ def _run_cmd(
     env = os.environ.copy()
     # Remove dev-loop's own venv so uv/pytest in the worktree use their own
     env.pop("VIRTUAL_ENV", None)
+    # Prevent nested Claude Code session errors (L6 fix)
+    env.pop("CLAUDECODE", None)
     return subprocess.run(
         args,
         capture_output=True,
@@ -575,17 +577,29 @@ def run_gate_3_security(worktree_path: str) -> dict:
             str(worktree / "node_modules"),
         ])
 
-        result = _run_cmd(
-            [
-                bandit_bin,
-                "-r",
-                str(scan_target),
-                "-f", "json",
-                "-x", exclusions,
-            ],
-            cwd=worktree,
-            timeout=120,
-        )
+        try:
+            result = _run_cmd(
+                [
+                    bandit_bin,
+                    "-r",
+                    str(scan_target),
+                    "-f", "json",
+                    "-x", exclusions,
+                ],
+                cwd=worktree,
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            elapsed = time.monotonic() - start
+            error_msg = "bandit scan timed out after 120s"
+            span.set_status(trace.StatusCode.ERROR, error_msg)
+            return GateResult(
+                gate_name="gate_3_security",
+                passed=False,
+                findings=[Finding(severity="critical", message=error_msg)],
+                duration_seconds=round(elapsed, 3),
+                error=error_msg,
+            ).model_dump()
 
         # bandit exit codes: 0=no issues, 1=issues found, 2=error
         if result.returncode == 2:
@@ -845,12 +859,17 @@ def run_gate_4_review(
             if response_text.startswith("["):
                 objects = json.loads(response_text)
             else:
-                # NDJSON: one JSON object per line
-                objects = [
-                    json.loads(line)
-                    for line in response_text.split("\n")
-                    if line.strip()
-                ]
+                # NDJSON: one JSON object per line.
+                # Wrap each line in try/except — truncated lines from
+                # partial output shouldn't crash the whole parser (L5 fix).
+                objects = []
+                for line in response_text.split("\n"):
+                    if not line.strip():
+                        continue
+                    try:
+                        objects.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
 
             # Find the result object with structured_output
             for obj in objects:

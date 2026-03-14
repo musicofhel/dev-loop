@@ -122,35 +122,38 @@ just tb3-organic <issue_id> <repo_path>  # organic mode (relies on agent)
 
 ---
 
-## TB-4: Cost-Spike-to-Pause (The Budget Path)
+## TB-4: Runaway-to-Stop (The Resource Control Path)
 
-**What it proves:** Token spend is visible and controllable. Runaway agents get killed, not just logged.
+**What it proves:** Runaway agents get stopped, not just logged. Resource usage is visible and controllable.
+
+On Claude Code Max (flat subscription), dollar cost is always 0. The real
+runaway controls are **turn limits** and **timeouts**. TB-4 gates on turns.
 
 ### Vertical Slice
 
 | Layer | What happens | Minimal implementation |
 |-------|-------------|----------------------|
 | Intake | Issue with intentionally vague/large scope | Seed issue: "refactor the entire codebase" |
-| Orchestration | Agent assigned with cost ceiling | `git worktree add` + cost limit in runtime config |
-| Runtime | Token proxy tracks spend per API call | OTel-instrumented proxy between agent and LLM API |
-| Quality Gates | Cost gate checks total spend before PR creation | Threshold comparison (spent vs budget) |
-| Observability | Real-time cost dashboard in OpenObserve | Token counts + model pricing → dollar amounts |
-| Feedback Loop | On budget exceeded: agent killed, issue marked, human alerted | Kill signal → beads comment with cost breakdown |
+| Orchestration | Agent assigned with turn limit from persona | `git worktree add` + `max_turns_default` in agents.yaml |
+| Runtime | `--max-turns` + `--output-format json` on CLI | CLI stops at turn limit; parse `num_turns` + token usage from NDJSON |
+| Quality Gates | Existing gates run if turns remain; skipped if exhausted | Same gates (0→2→3→4); turn check happens in pipeline before gate call |
+| Observability | Turn + token counts visible in OTel spans | `runtime.num_turns`, `runtime.input_tokens`, `runtime.output_tokens` span attrs |
+| Feedback Loop | On turns exhausted: issue marked blocked, human gets usage breakdown | beads comment with per-attempt turn/token table |
 
 ### Entry Criteria
 - TB-1 passes
-- Token proxy deployed (even if just logging, not blocking)
+- Claude CLI supports `--max-turns` and `--output-format json`
 
 ### Exit Criteria
-- Agent runs until cost ceiling hit → gracefully stopped
-- Cost breakdown visible in OpenObserve (per-call, per-model, cumulative)
-- beads issue gets a comment: "Budget exceeded: $X.XX spent of $Y.YY limit"
-- Human can approve budget increase and restart
+- Agent runs until turn limit hit → gracefully stopped (not crashed)
+- Turn + token counts visible per-attempt in OTel (OpenObserve)
+- beads issue gets a comment: "Turn limit reached: N/M turns across K attempts"
+- Human can adjust `max_turns_default` in agents.yaml and re-run
 
 ### Command
 ```bash
-just tb4                    # run with low budget ($0.50)
-just tb4 --budget 5.00      # override budget
+just tb4 <issue_id> <repo_path>              # default turns from persona
+just tb4-turns <issue_id> <repo_path> 5      # override turn limit
 ```
 
 ---
@@ -163,27 +166,31 @@ just tb4 --budget 5.00      # override budget
 
 | Layer | What happens | Minimal implementation |
 |-------|-------------|----------------------|
-| Intake | PR merged in repo A that affects repo B's API contract | Watch for merged PRs via GitHub webhook |
-| Orchestration | Detect dependency, create issue in beads for repo B | Dependency map config + beads issue creation |
-| Runtime | Agent in repo B makes compatible changes | Claude Code in repo B worktree |
-| Quality Gates | Both repos' test suites pass | Run tests in both worktrees |
-| Observability | Cross-repo trace links both PRs to same root cause | OTel trace spans both repos with shared trace_id |
-| Feedback Loop | If repo B fails, repo A PR gets a warning comment | GitHub comment on source PR |
+| Intake | Source issue branch has files matching dependency watches | `br show` + `git diff main..dl/<id> --name-only` |
+| Orchestration | Detect dependency via `config/dependencies.yaml`, create cascade issue | `_load_dependency_map()` + `br create --parent --labels cascade` |
+| Runtime | TB-1 runs on target repo with cascade issue | Delegates to `run_tb1(target_issue_id, target_repo_path)` |
+| Quality Gates | Target repo's gates run via TB-1 | Same gates (0→2→3→4) through `run_tb1()` |
+| Observability | Cross-repo trace: TB-5 spans parent TB-1 spans via context propagation | `tb5.phase.cascade_tb1` → `tb1.run` (automatic OTel child spans) |
+| Feedback Loop | Outcome reported back to source issue via `br comments add` | Success/failure/skip comment on source issue |
 
 ### Entry Criteria
 - TB-1 passes on at least 2 repos independently
-- Dependency map defined (even if manual YAML for now)
+- Dependency map defined in `config/dependencies.yaml`
 
 ### Exit Criteria
-- Change in repo A → auto-issue in beads for repo B → auto-PR in repo B
-- Both PRs linked via trace in OpenObserve
-- If repo B can't adapt, repo A PR gets a comment warning about breakage
+- Change in source repo → dependency match → cascade issue in beads → TB-1 on target repo
+- Both repos linked via OTel trace in OpenObserve (single trace_id)
+- If target repo can't adapt, source issue gets a failure comment
+- "No match" is a success (cascade_skipped=True), not a failure
 
 ### Command
 ```bash
-just tb5                    # trigger with test change in prompt-bench
-just tb5 --source prompt-bench --target omniswipe-backend
+just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
+# Example:
+just tb5 dl-abc ~/prompt-bench ~/omniswipe-backend
 ```
+
+### Status: CODE COMPLETE
 
 ---
 

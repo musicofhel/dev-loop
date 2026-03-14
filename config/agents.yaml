@@ -11,6 +11,7 @@ personas:
     cost_ceiling_default: 1.00
     retry_max: 2
     model: sonnet
+    max_turns_default: 10
 
   feature:
     labels: [feature]
@@ -20,6 +21,7 @@ personas:
     cost_ceiling_default: 5.00
     retry_max: 1
     model: opus
+    max_turns_default: 25
 
   refactor:
     labels: [refactor]
@@ -29,6 +31,7 @@ personas:
     cost_ceiling_default: 3.00
     retry_max: 1
     model: opus
+    max_turns_default: 20
 
   security-fix:
     labels: [security]
@@ -39,6 +42,7 @@ personas:
     cost_ceiling_default: 2.00
     retry_max: 3
     model: opus
+    max_turns_default: 15
 
   docs:
     labels: [docs]
@@ -47,3 +51,4 @@ personas:
     cost_ceiling_default: 0.50
     retry_max: 1
     model: haiku
+    max_turns_default: 10

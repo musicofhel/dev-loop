@@ -26,6 +26,13 @@ class AgentConfig(BaseModel):
             "Example: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash']."
         ),
     )
+    max_turns: int | None = Field(
+        default=None,
+        description=(
+            "Maximum agentic turns before the CLI stops. "
+            "None means no limit (use persona default or CLI default)."
+        ),
+    )
     cost_ceiling: float = Field(
         default=2.0,
         ge=0.01,
@@ -72,4 +79,19 @@ class AgentResult(BaseModel):
     model: str = Field(
         default="sonnet",
         description="Model used for the run.",
+    )
+    num_turns: int = Field(
+        default=0,
+        ge=0,
+        description="Number of agentic turns used (parsed from --output-format json).",
+    )
+    input_tokens: int = Field(
+        default=0,
+        ge=0,
+        description="Total input tokens consumed (parsed from --output-format json).",
+    )
+    output_tokens: int = Field(
+        default=0,
+        ge=0,
+        description="Total output tokens consumed (parsed from --output-format json).",
     )

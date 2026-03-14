@@ -26,6 +26,7 @@ class PersonaConfig(BaseModel):
     cost_ceiling_default: float = 1.00
     retry_max: int = 1
     model: str = "sonnet"
+    max_turns_default: int = 15
 
 
 class ClaudeOverlay(BaseModel):

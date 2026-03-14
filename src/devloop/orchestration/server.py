@@ -262,6 +262,7 @@ def select_persona(labels: list[str]) -> dict:
                 cost_ceiling_default=fallback.get("cost_ceiling_default", 5.00),
                 retry_max=fallback.get("retry_max", 1),
                 model=fallback.get("model", "opus"),
+                max_turns_default=fallback.get("max_turns_default", 15),
             )
             span.set_status(trace.StatusCode.OK)
             return persona.model_dump()
@@ -279,6 +280,7 @@ def select_persona(labels: list[str]) -> dict:
             cost_ceiling_default=data.get("cost_ceiling_default", 1.00),
             retry_max=data.get("retry_max", 1),
             model=data.get("model", "sonnet"),
+            max_turns_default=data.get("max_turns_default", 15),
         )
 
         span.set_status(trace.StatusCode.OK)

@@ -19,6 +19,7 @@ result dicts with full details of what happened at each phase.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
 import shutil
@@ -26,11 +27,13 @@ import subprocess
 import time
 from pathlib import Path
 
+import yaml
+
 from opentelemetry import trace
 from opentelemetry.trace import Link
 
 from devloop.feedback.server import escalate_to_human, retry_agent
-from devloop.feedback.types import RetryAttempt, SecurityFinding, TB1Result, TB2Result, TB3Result
+from devloop.feedback.types import RetryAttempt, SecurityFinding, TB1Result, TB2Result, TB3Result, TB4Result, TB5Result, UsageBreakdown
 from devloop.gates.server import run_all_gates
 from devloop.gates.types import Finding, GateResult, GateSuiteResult
 from devloop.intake.beads_poller import claim_issue, poll_ready
@@ -53,12 +56,38 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("tb1", "0.1.0")
 tracer_tb2 = trace.get_tracer("tb2", "0.1.0")
 tracer_tb3 = trace.get_tracer("tb3", "0.1.0")
+tracer_tb4 = trace.get_tracer("tb4", "0.1.0")
+tracer_tb5 = trace.get_tracer("tb5", "0.1.0")
 
 # ---------------------------------------------------------------------------
 # TB-2 test fixtures path
 # ---------------------------------------------------------------------------
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[3] / "test-fixtures"
+_CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
+
+
+def _latest_failure_gate(all_gate_failures: list[dict]) -> str | None:
+    """Extract the gate name from the most recent failure record (L8 fix).
+
+    Used in retry log messages so they report the *current* failure,
+    not the stale initial gate_suite.first_failure.
+    """
+    if not all_gate_failures:
+        return None
+    last = all_gate_failures[-1]
+    # GateSuiteResult-shaped dict
+    if "first_failure" in last:
+        return last["first_failure"]
+    # Individual gate results
+    if "gate_results" in last:
+        for gr in last["gate_results"]:
+            if not gr.get("passed", True):
+                return gr.get("gate_name")
+    # Single gate result dict
+    if "gate_name" in last:
+        return last.get("gate_name")
+    return None
 
 
 def _unclaim_issue(issue_id: str) -> None:
@@ -380,12 +409,14 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                         "retry.max_retries": max_retries,
                     },
                 ) as retry_span:
+                    # Use latest failure info, not stale initial gate_suite (L8 fix)
+                    last_failure_name = _latest_failure_gate(all_gate_failures) or gate_suite.first_failure
                     logger.info(
                         "TB-1 RETRY %d/%d for issue %s (failed at %s)",
                         attempt,
                         max_retries,
                         issue_id,
-                        gate_suite.first_failure,
+                        last_failure_name,
                     )
 
                     retry_raw = retry_agent(
@@ -982,12 +1013,13 @@ def run_tb2(
                     previous_span_context = retry_span.get_span_context()
                     attempt_span_ids.append(_span_id_hex(retry_span))
 
+                    last_failure_name = _latest_failure_gate(all_gate_failures) or gate_suite.first_failure
                     logger.info(
                         "TB-2 RETRY %d/%d for issue %s (failed at %s)",
                         attempt,
                         max_retries,
                         issue_id,
-                        gate_suite.first_failure,
+                        last_failure_name,
                     )
 
                     retry_raw = retry_agent(
@@ -1171,7 +1203,8 @@ def run_tb2(
                 stop_heartbeat(heartbeat_event, heartbeat_thread)
 
             # TB-2: keep worktree on escalation for debugging
-            if worktree_path and not retries_used >= max_retries:
+            escalated = retries_used >= max_retries
+            if worktree_path and not escalated:
                 cleanup_worktree(issue_id)
             elif worktree_path:
                 logger.info(
@@ -1686,12 +1719,13 @@ def run_tb3(
                     previous_span_context = retry_span.get_span_context()
                     attempt_span_ids.append(_span_id_hex(retry_span))
 
+                    last_failure_name = _latest_failure_gate(all_gate_failures) or gate_suite.first_failure
                     logger.info(
                         "TB-3 RETRY %d/%d for issue %s (failed at %s, CWEs: %s)",
                         attempt,
                         max_retries,
                         issue_id,
-                        gate_suite.first_failure,
+                        last_failure_name,
                         cwe_ids,
                     )
 
@@ -1892,7 +1926,8 @@ def run_tb3(
                 stop_heartbeat(heartbeat_event, heartbeat_thread)
 
             # Keep worktree on escalation for debugging
-            if worktree_path and not retries_used >= max_retries:
+            escalated = retries_used >= max_retries
+            if worktree_path and not escalated:
                 cleanup_worktree(issue_id)
             elif worktree_path:
                 logger.info(
@@ -1910,3 +1945,1043 @@ def run_tb3(
                     provider.force_flush(timeout_millis=5000)
                 except Exception:
                     logger.warning("Failed to flush OTel spans")
+
+
+# ---------------------------------------------------------------------------
+# TB-4: Runaway-to-Stop
+# ---------------------------------------------------------------------------
+
+
+def run_tb4(
+    issue_id: str,
+    repo_path: str,
+    turns_override: int | None = None,
+) -> dict:
+    """Run the full TB-4 runaway-to-stop pipeline.
+
+    Proves: runaway agents get stopped, not just logged. Turn usage is
+    visible and controllable.  On Max subscription, turns are the control.
+
+    Phases:
+        1.  Poll beads for the issue (intake)
+        2.  Claim the issue (optimistic locking)
+        3.  Setup worktree (orchestration)
+        4.  Select persona → get max_turns_default (orchestration)
+        5.  Init tracing (observability)
+        6.  Start heartbeat (observability)
+        7.  Spawn agent with --max-turns (runtime)
+        8.  Run quality gates if turns remain (gates)
+        9.  Gates pass → success
+        10. Gates fail → retry with remaining turn budget
+        11. Turns exhausted or retries exhausted → escalate with usage table
+        12. Cleanup
+
+    Args:
+        issue_id: The beads issue ID to process.
+        repo_path: Absolute path to the git repository.
+        turns_override: Override the persona's max_turns_default.
+
+    Returns:
+        A dict (TB4Result) with the outcome of the run.
+    """
+    pipeline_start = time.monotonic()
+
+    # Phase 5 — init tracing early
+    provider = init_tracing()
+
+    with tracer_tb4.start_as_current_span(
+        "tb4.run",
+        attributes={
+            "tb4.issue_id": issue_id,
+            "tb4.repo_path": repo_path,
+        },
+    ) as root_span:
+        heartbeat_event = None
+        heartbeat_thread = None
+        worktree_path: str | None = None
+        persona_name: str | None = None
+        pipeline_success = False
+        retries_used = 0
+        max_retries = 2
+        max_turns_total = 0
+        turns_used_total = 0
+        usage_breakdown: list[UsageBreakdown] = []
+        attempt_span_ids: list[str] = []
+        trace_id: str | None = None
+
+        try:
+            # ----------------------------------------------------------
+            # Phase 1: Poll beads for the issue
+            # ----------------------------------------------------------
+            with tracer_tb4.start_as_current_span(
+                "tb4.phase.poll",
+                attributes={"tb4.phase": "poll"},
+            ) as poll_span:
+                items = poll_ready()
+                issue = None
+                for item in items:
+                    if item.id == issue_id:
+                        issue = item
+                        break
+
+                if issue is None:
+                    poll_span.set_attribute("tb4.issue_found_in_poll", False)
+                    logger.info(
+                        "Issue %s not found in ready poll; proceeding with claim",
+                        issue_id,
+                    )
+                    issue_title = issue_id
+                    issue_description = ""
+                    issue_labels: list[str] = []
+                else:
+                    poll_span.set_attribute("tb4.issue_found_in_poll", True)
+                    issue_title = issue.title
+                    issue_description = issue.description or ""
+                    issue_labels = issue.labels
+
+                poll_span.set_attribute("tb4.ready_count", len(items))
+
+            # ----------------------------------------------------------
+            # Phase 2: Claim the issue
+            # ----------------------------------------------------------
+            with tracer_tb4.start_as_current_span(
+                "tb4.phase.claim",
+                attributes={"tb4.phase": "claim", "issue.id": issue_id},
+            ) as claim_span:
+                claimed = claim_issue(issue_id)
+                claim_span.set_attribute("tb4.claimed", claimed)
+
+                if not claimed:
+                    elapsed = time.monotonic() - pipeline_start
+                    claim_span.set_status(
+                        trace.StatusCode.ERROR,
+                        f"Failed to claim issue {issue_id}",
+                    )
+                    return TB4Result(
+                        issue_id=issue_id,
+                        repo_path=repo_path,
+                        success=False,
+                        phase="claim",
+                        error=f"Could not claim issue {issue_id}",
+                        duration_seconds=round(elapsed, 2),
+                    ).model_dump()
+
+            # ----------------------------------------------------------
+            # Phase 3: Setup worktree
+            # ----------------------------------------------------------
+            with tracer_tb4.start_as_current_span(
+                "tb4.phase.setup_worktree",
+                attributes={"tb4.phase": "setup_worktree"},
+            ):
+                wt_result = setup_worktree(issue_id, repo_path)
+
+                if not wt_result.get("success"):
+                    elapsed = time.monotonic() - pipeline_start
+                    return TB4Result(
+                        issue_id=issue_id,
+                        repo_path=repo_path,
+                        success=False,
+                        phase="setup_worktree",
+                        error=wt_result.get("message", "Worktree setup failed"),
+                        duration_seconds=round(elapsed, 2),
+                    ).model_dump()
+
+                worktree_path = wt_result["worktree_path"]
+
+            # ----------------------------------------------------------
+            # Phase 4: Select persona + get max_turns_default
+            # ----------------------------------------------------------
+            with tracer_tb4.start_as_current_span(
+                "tb4.phase.persona",
+                attributes={"tb4.phase": "persona"},
+            ) as persona_span:
+                persona_result = select_persona(issue_labels)
+                persona_name = persona_result.get("name", "feature")
+                max_retries = persona_result.get("retry_max", 2)
+                max_turns_total = turns_override or persona_result.get(
+                    "max_turns_default", 15
+                )
+
+                persona_span.set_attribute("tb4.persona", persona_name)
+                persona_span.set_attribute("tb4.max_retries", max_retries)
+                persona_span.set_attribute("tb4.max_turns_total", max_turns_total)
+
+                overlay_result = build_claude_md_overlay(
+                    persona=persona_name,
+                    issue_title=issue_title,
+                    issue_description=issue_description,
+                )
+                overlay_text = overlay_result.get("overlay_text", "")
+
+                if worktree_path and overlay_text:
+                    claude_md_path = Path(worktree_path) / "CLAUDE.md"
+                    existing = ""
+                    if claude_md_path.exists():
+                        existing = claude_md_path.read_text(encoding="utf-8")
+                    combined = existing
+                    if combined and not combined.endswith("\n"):
+                        combined += "\n"
+                    combined += "\n" + overlay_text
+                    claude_md_path.write_text(combined, encoding="utf-8")
+
+            root_span.set_attribute("tb4.max_turns_total", max_turns_total)
+            trace_id = _trace_id_hex(root_span)
+
+            # ----------------------------------------------------------
+            # Phase 6: Start heartbeat
+            # ----------------------------------------------------------
+            with tracer_tb4.start_as_current_span(
+                "tb4.phase.heartbeat_start",
+                attributes={"tb4.phase": "heartbeat_start"},
+            ):
+                heartbeat_event, heartbeat_thread = start_heartbeat(
+                    issue_id, interval_seconds=30, worktree_path=worktree_path,
+                )
+
+            # ----------------------------------------------------------
+            # Phase 7: Spawn agent with turn budget
+            # ----------------------------------------------------------
+            remaining_turns = max_turns_total
+
+            with tracer_tb4.start_as_current_span(
+                "tb4.phase.spawn_agent",
+                attributes={
+                    "tb4.phase": "spawn_agent",
+                    "tb4.max_turns": remaining_turns,
+                },
+            ) as agent_span:
+                attempt_span_ids.append(_span_id_hex(agent_span))
+                task_prompt = overlay_text or f"Fix issue: {issue_title}\n\n{issue_description}"
+
+                agent_result = spawn_agent(
+                    worktree_path=worktree_path,
+                    task_prompt=task_prompt,
+                    model=persona_result.get("model", "sonnet"),
+                    max_turns=remaining_turns,
+                )
+
+                agent_exit = agent_result.get("exit_code", -1)
+                agent_turns = agent_result.get("num_turns", 0)
+                turns_used_total += agent_turns
+                remaining_turns = max(0, max_turns_total - turns_used_total)
+
+                usage_breakdown.append(UsageBreakdown(
+                    attempt=0,
+                    num_turns=agent_turns,
+                    input_tokens=agent_result.get("input_tokens", 0),
+                    output_tokens=agent_result.get("output_tokens", 0),
+                    cumulative_turns=turns_used_total,
+                ))
+
+                agent_span.set_attribute("tb4.agent_exit_code", agent_exit)
+                agent_span.set_attribute("runtime.num_turns", agent_turns)
+                agent_span.set_attribute("runtime.input_tokens", agent_result.get("input_tokens", 0))
+                agent_span.set_attribute("runtime.output_tokens", agent_result.get("output_tokens", 0))
+                agent_span.set_attribute("tb4.turns_remaining", remaining_turns)
+
+                if agent_exit != 0:
+                    elapsed = time.monotonic() - pipeline_start
+                    agent_span.set_status(
+                        trace.StatusCode.ERROR,
+                        f"Agent exited with code {agent_exit}",
+                    )
+                    return TB4Result(
+                        issue_id=issue_id,
+                        repo_path=repo_path,
+                        success=False,
+                        phase="spawn_agent",
+                        worktree_path=worktree_path,
+                        persona=persona_name,
+                        max_retries=max_retries,
+                        turns_used_total=turns_used_total,
+                        max_turns_total=max_turns_total,
+                        usage_breakdown=usage_breakdown,
+                        trace_id=trace_id,
+                        attempt_span_ids=attempt_span_ids,
+                        error=f"Agent exited with code {agent_exit}",
+                        duration_seconds=round(elapsed, 2),
+                    ).model_dump()
+
+            # ----------------------------------------------------------
+            # Phase 8: Run quality gates (if turns remain)
+            # ----------------------------------------------------------
+            if remaining_turns <= 0:
+                logger.warning(
+                    "TB-4: Turn budget exhausted after initial spawn (%d/%d turns)",
+                    turns_used_total,
+                    max_turns_total,
+                )
+                # Skip gates, go straight to escalation
+                gate_suite = None
+                all_gate_failures: list[dict] = [{
+                    "gate_results": [{
+                        "gate_name": "turn_budget",
+                        "passed": False,
+                        "findings": [{
+                            "severity": "critical",
+                            "message": (
+                                f"Turn budget exhausted: {turns_used_total}/{max_turns_total} "
+                                "turns used on initial attempt"
+                            ),
+                        }],
+                    }],
+                }]
+            else:
+                with tracer_tb4.start_as_current_span(
+                    "tb4.phase.gates",
+                    attributes={"tb4.phase": "gates"},
+                ) as gates_span:
+                    gate_raw = run_all_gates(
+                        worktree_path=worktree_path,
+                        issue_title=issue_title,
+                        issue_description=issue_description,
+                    )
+                    try:
+                        gate_suite = GateSuiteResult(**gate_raw)
+                    except Exception as exc:
+                        elapsed = time.monotonic() - pipeline_start
+                        error_msg = f"Malformed gate result: {exc}"
+                        gates_span.set_status(trace.StatusCode.ERROR, error_msg)
+                        return TB4Result(
+                            issue_id=issue_id,
+                            repo_path=repo_path,
+                            success=False,
+                            phase="gates",
+                            worktree_path=worktree_path,
+                            persona=persona_name,
+                            turns_used_total=turns_used_total,
+                            max_turns_total=max_turns_total,
+                            usage_breakdown=usage_breakdown,
+                            trace_id=trace_id,
+                            attempt_span_ids=attempt_span_ids,
+                            error=error_msg,
+                            duration_seconds=round(elapsed, 2),
+                        ).model_dump()
+
+                    gates_span.set_attribute("tb4.gates_passed", gate_suite.overall_passed)
+
+                    if gate_suite.overall_passed:
+                        elapsed = time.monotonic() - pipeline_start
+                        logger.info(
+                            "TB-4 SUCCESS: Issue %s — all gates passed in %.1fs "
+                            "(%d/%d turns used)",
+                            issue_id,
+                            elapsed,
+                            turns_used_total,
+                            max_turns_total,
+                        )
+                        root_span.set_attribute("tb4.outcome", "success")
+                        root_span.set_attribute("tb4.turns_used_total", turns_used_total)
+                        root_span.set_status(trace.StatusCode.OK, "All gates passed")
+                        pipeline_success = True
+                        return TB4Result(
+                            issue_id=issue_id,
+                            repo_path=repo_path,
+                            success=True,
+                            phase="gates_passed",
+                            worktree_path=worktree_path,
+                            persona=persona_name,
+                            turns_used_total=turns_used_total,
+                            max_turns_total=max_turns_total,
+                            usage_breakdown=usage_breakdown,
+                            trace_id=trace_id,
+                            attempt_span_ids=attempt_span_ids,
+                            duration_seconds=round(elapsed, 2),
+                        ).model_dump()
+
+                    all_gate_failures = [gate_raw]
+
+            # ----------------------------------------------------------
+            # Phase 10: Gates failed → retry with remaining turn budget
+            # ----------------------------------------------------------
+            for attempt in range(1, max_retries + 1):
+                retries_used = attempt
+
+                # Check turn budget before retrying
+                if remaining_turns <= 0:
+                    logger.warning(
+                        "TB-4: No turns remaining for retry %d/%d (%d/%d used)",
+                        attempt,
+                        max_retries,
+                        turns_used_total,
+                        max_turns_total,
+                    )
+                    break
+
+                with tracer_tb4.start_as_current_span(
+                    "tb4.phase.retry",
+                    attributes={
+                        "tb4.phase": "retry",
+                        "retry.attempt": attempt,
+                        "retry.max_retries": max_retries,
+                        "tb4.turns_remaining": remaining_turns,
+                    },
+                    links=[Link(root_span.get_span_context())],
+                ) as retry_span:
+                    attempt_span_ids.append(_span_id_hex(retry_span))
+
+                    last_failure_name = _latest_failure_gate(all_gate_failures)
+                    logger.info(
+                        "TB-4 RETRY %d/%d for issue %s (failed at %s, %d turns remaining)",
+                        attempt,
+                        max_retries,
+                        issue_id,
+                        last_failure_name,
+                        remaining_turns,
+                    )
+
+                    # Spawn agent with remaining turns as budget
+                    retry_raw = retry_agent(
+                        worktree_path=worktree_path,
+                        issue_id=issue_id,
+                        issue_title=issue_title,
+                        issue_description=issue_description,
+                        gate_failures=all_gate_failures,
+                        attempt=attempt,
+                        max_retries=max_retries,
+                        model=persona_result.get("model", "sonnet"),
+                        max_turns=remaining_turns,
+                    )
+
+                    # Parse usage from retry (retry_agent calls spawn_agent internally)
+                    retry_turns = retry_raw.get("num_turns", 0)
+                    turns_used_total += retry_turns
+                    remaining_turns = max(0, max_turns_total - turns_used_total)
+
+                    usage_breakdown.append(UsageBreakdown(
+                        attempt=attempt,
+                        num_turns=retry_turns,
+                        input_tokens=retry_raw.get("input_tokens", 0),
+                        output_tokens=retry_raw.get("output_tokens", 0),
+                        cumulative_turns=turns_used_total,
+                    ))
+
+                    retry_span.set_attribute("runtime.num_turns", retry_turns)
+                    retry_span.set_attribute("tb4.turns_remaining", remaining_turns)
+
+                    retry_success = retry_raw.get("success", False)
+                    retry_span.set_attribute("tb4.retry_success", retry_success)
+
+                    if retry_success:
+                        elapsed = time.monotonic() - pipeline_start
+                        logger.info(
+                            "TB-4 SUCCESS after retry %d: Issue %s in %.1fs "
+                            "(%d/%d turns used)",
+                            attempt,
+                            issue_id,
+                            elapsed,
+                            turns_used_total,
+                            max_turns_total,
+                        )
+                        root_span.set_attribute("tb4.outcome", "success_after_retry")
+                        root_span.set_attribute("tb4.retries_used", attempt)
+                        root_span.set_attribute("tb4.turns_used_total", turns_used_total)
+                        pipeline_success = True
+                        root_span.set_status(
+                            trace.StatusCode.OK,
+                            f"Gates passed after {attempt} retry(ies)",
+                        )
+                        return TB4Result(
+                            issue_id=issue_id,
+                            repo_path=repo_path,
+                            success=True,
+                            phase="retry_passed",
+                            worktree_path=worktree_path,
+                            persona=persona_name,
+                            retries_used=attempt,
+                            max_retries=max_retries,
+                            turns_used_total=turns_used_total,
+                            max_turns_total=max_turns_total,
+                            usage_breakdown=usage_breakdown,
+                            trace_id=trace_id,
+                            attempt_span_ids=attempt_span_ids,
+                            duration_seconds=round(elapsed, 2),
+                        ).model_dump()
+
+                    # Accumulate failures
+                    retry_gate_raw = retry_raw.get("gate_results")
+                    if retry_gate_raw:
+                        all_gate_failures.append(retry_gate_raw)
+                    elif retry_raw.get("error"):
+                        all_gate_failures.append({
+                            "gate_results": [{
+                                "gate_name": "agent_spawn",
+                                "passed": False,
+                                "findings": [{
+                                    "severity": "critical",
+                                    "message": f"Agent spawn failed: {retry_raw['error']}",
+                                }],
+                            }],
+                        })
+
+            # ----------------------------------------------------------
+            # Phase 11: Escalate with usage table
+            # ----------------------------------------------------------
+            with tracer_tb4.start_as_current_span(
+                "tb4.phase.escalate",
+                attributes={
+                    "tb4.phase": "escalate",
+                    "escalate.attempts": retries_used + 1,
+                    "tb4.turns_used_total": turns_used_total,
+                },
+            ) as esc_span:
+                reason = (
+                    f"Turn limit reached: {turns_used_total}/{max_turns_total} turns "
+                    f"across {retries_used + 1} attempt(s)"
+                )
+                logger.warning("TB-4 ESCALATE: Issue %s — %s", issue_id, reason)
+
+                esc_result = escalate_to_human(
+                    issue_id=issue_id,
+                    gate_failures=all_gate_failures,
+                    attempts=retries_used + 1,
+                    usage_breakdown=[u.model_dump() for u in usage_breakdown],
+                )
+
+                esc_span.set_attribute(
+                    "tb4.escalation_success",
+                    esc_result.get("success", False),
+                )
+
+            elapsed = time.monotonic() - pipeline_start
+            root_span.set_attribute("tb4.outcome", "escalated")
+            root_span.set_attribute("tb4.retries_used", retries_used)
+            root_span.set_attribute("tb4.turns_used_total", turns_used_total)
+            root_span.set_status(
+                trace.StatusCode.ERROR,
+                f"Escalated: {turns_used_total}/{max_turns_total} turns used",
+            )
+            return TB4Result(
+                issue_id=issue_id,
+                repo_path=repo_path,
+                success=False,
+                phase="escalated",
+                worktree_path=worktree_path,
+                persona=persona_name,
+                retries_used=retries_used,
+                max_retries=max_retries,
+                escalated=True,
+                turns_used_total=turns_used_total,
+                max_turns_total=max_turns_total,
+                usage_breakdown=usage_breakdown,
+                trace_id=trace_id,
+                attempt_span_ids=attempt_span_ids,
+                error=reason,
+                duration_seconds=round(elapsed, 2),
+            ).model_dump()
+
+        except Exception as exc:
+            elapsed = time.monotonic() - pipeline_start
+            error_msg = f"Pipeline error: {type(exc).__name__}: {exc}"
+            logger.exception("TB-4 pipeline error for issue %s", issue_id)
+            root_span.set_status(trace.StatusCode.ERROR, error_msg)
+            root_span.record_exception(exc)
+            return TB4Result(
+                issue_id=issue_id,
+                repo_path=repo_path,
+                success=False,
+                phase="error",
+                worktree_path=worktree_path,
+                persona=persona_name,
+                retries_used=retries_used,
+                max_retries=max_retries,
+                turns_used_total=turns_used_total,
+                max_turns_total=max_turns_total,
+                usage_breakdown=usage_breakdown,
+                error=error_msg,
+                duration_seconds=round(elapsed, 2),
+            ).model_dump()
+
+        finally:
+            # ----------------------------------------------------------
+            # Phase 12: Cleanup
+            # ----------------------------------------------------------
+            try:
+                with tracer_tb4.start_as_current_span(
+                    "tb4.phase.cleanup",
+                    attributes={"tb4.phase": "cleanup"},
+                ):
+                    pass
+            except Exception:
+                pass
+
+            if heartbeat_event is not None:
+                stop_heartbeat(heartbeat_event, heartbeat_thread)
+
+            if worktree_path:
+                cleanup_worktree(issue_id)
+
+            if not pipeline_success:
+                _unclaim_issue(issue_id)
+
+            if provider is not None:
+                try:
+                    provider.force_flush(timeout_millis=5000)
+                except Exception:
+                    pass
+
+
+# ---------------------------------------------------------------------------
+# TB-5 helpers — cross-repo cascade
+# ---------------------------------------------------------------------------
+
+
+def _load_dependency_map() -> list[dict]:
+    """Load the dependency map from config/dependencies.yaml.
+
+    Returns a list of dependency dicts, each with keys:
+    source, target, watches (list[str]), type (str).
+    """
+    dep_file = _CONFIG_DIR / "dependencies.yaml"
+    if not dep_file.exists():
+        logger.warning("Dependency map not found: %s", dep_file)
+        return []
+
+    raw = yaml.safe_load(dep_file.read_text(encoding="utf-8"))
+    if not raw or "dependencies" not in raw:
+        logger.warning("Malformed dependency map: missing 'dependencies' key")
+        return []
+
+    return raw["dependencies"]
+
+
+def _get_changed_files(repo_path: str, issue_id: str) -> list[str]:
+    """Get files changed on the source branch vs main.
+
+    Runs: git diff main..dl/<issue_id> --name-only
+    Returns a list of relative file paths.
+    """
+    branch = f"dl/{issue_id}"
+    result = subprocess.run(
+        ["git", "diff", f"main..{branch}", "--name-only"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        error_msg = result.stderr.strip() or f"git diff failed with exit code {result.returncode}"
+        raise RuntimeError(error_msg)
+
+    files = [f for f in result.stdout.strip().split("\n") if f]
+    return files
+
+
+def _match_watches(changed_files: list[str], watches: list[str]) -> list[str]:
+    """Match changed files against watch glob patterns.
+
+    Uses fnmatch which treats ** and * equivalently (no / special handling),
+    making it suitable for matching file paths against glob patterns like
+    "src/api/**" or "src/types/**".
+
+    Returns the list of watch patterns that had at least one match.
+    """
+    matched = []
+    for pattern in watches:
+        for f in changed_files:
+            if fnmatch.fnmatch(f, pattern):
+                matched.append(pattern)
+                break
+    return matched
+
+
+def _get_source_issue_details(issue_id: str) -> dict:
+    """Get source issue details via br show.
+
+    Returns dict with title, description, labels keys.
+    """
+    result = subprocess.run(
+        ["br", "show", issue_id, "--format", "json"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        error_msg = result.stderr.strip() or f"br show failed with exit code {result.returncode}"
+        raise RuntimeError(error_msg)
+
+    data = json.loads(result.stdout)
+    # br show --format json may return a list (even for single ID)
+    if isinstance(data, list):
+        if not data:
+            raise RuntimeError(f"Issue {issue_id} not found (empty result)")
+        data = data[0]
+    return {
+        "title": data.get("title", ""),
+        "description": data.get("description", ""),
+        "labels": data.get("labels", []),
+    }
+
+
+def _create_cascade_issue(
+    source_issue_id: str,
+    source_title: str,
+    target_repo_name: str,
+    matched_watches: list[str],
+    dependency_type: str,
+) -> str:
+    """Create a cascade issue in beads for the target repo.
+
+    Returns the new issue ID.
+    """
+    title = f"[cascade] Adapt to upstream changes from {source_issue_id}: {source_title}"
+    description = (
+        f"Upstream issue {source_issue_id} changed files matching: {', '.join(matched_watches)}.\n"
+        f"Dependency type: {dependency_type}.\n"
+        f"Review and adapt {target_repo_name} as needed."
+    )
+    labels = f"cascade,repo:{target_repo_name}"
+
+    result = subprocess.run(
+        [
+            "br", "create", title,
+            "--description", description,
+            "--labels", labels,
+            "--parent", source_issue_id,
+            "--silent",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        error_msg = result.stderr.strip() or f"br create failed with exit code {result.returncode}"
+        raise RuntimeError(error_msg)
+
+    # --silent outputs just the issue ID
+    return result.stdout.strip()
+
+
+def _report_cascade_outcome(
+    source_issue_id: str,
+    target_issue_id: str | None,
+    target_repo_name: str,
+    success: bool,
+    cascade_skipped: bool,
+    error: str | None = None,
+) -> bool:
+    """Add a comment to the source issue reporting cascade outcome.
+
+    Returns True if the comment was added successfully.
+    """
+    if cascade_skipped:
+        msg = (
+            f"Cascade to {target_repo_name}: SKIPPED — "
+            "no changed files matched any watch patterns."
+        )
+    elif success:
+        msg = (
+            f"Cascade to {target_repo_name}: SUCCESS — "
+            f"target issue {target_issue_id} completed."
+        )
+    else:
+        detail = f" Error: {error}" if error else ""
+        msg = (
+            f"Cascade to {target_repo_name}: FAILED — "
+            f"target issue {target_issue_id} did not complete.{detail}"
+        )
+
+    result = subprocess.run(
+        ["br", "comments", "add", source_issue_id, "--message", msg],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "Failed to add cascade outcome comment to %s: %s",
+            source_issue_id,
+            result.stderr.strip(),
+        )
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# TB-5 pipeline — Cross-Repo Cascade
+# ---------------------------------------------------------------------------
+
+
+def run_tb5(source_issue_id: str, source_repo_path: str, target_repo_path: str) -> dict:
+    """Run the full TB-5 cross-repo cascade pipeline.
+
+    Phases:
+        1. Get source issue details (intake — br show)
+        2. Detect changed files on source branch (git diff main..dl/<id>)
+        3. Load dependency map + match changed files against watches
+        4. Init OTel tracing (observability)
+        5. Create cascade issue in beads for target repo (intake — br create)
+        6. Run TB-1 pipeline on target repo with cascade issue (all 6 layers)
+        7. Report outcome back to source issue (feedback — br comments add)
+        8. Cleanup (flush OTel)
+
+    Args:
+        source_issue_id: The beads issue ID in the source repo.
+        source_repo_path: Absolute path to the source git repository.
+        target_repo_path: Absolute path to the target git repository.
+
+    Returns:
+        A dict (TB5Result) with the outcome of the cascade run.
+    """
+    pipeline_start = time.monotonic()
+
+    # Phase 4 — init tracing early so all subsequent spans are captured
+    provider = init_tracing()
+
+    # Derive repo names from paths for labeling
+    source_repo_name = Path(source_repo_path).name
+    target_repo_name = Path(target_repo_path).name
+
+    with tracer_tb5.start_as_current_span(
+        "tb5.run",
+        attributes={
+            "tb5.source_issue_id": source_issue_id,
+            "tb5.source_repo_path": source_repo_path,
+            "tb5.target_repo_path": target_repo_path,
+            "tb5.source_repo": source_repo_name,
+            "tb5.target_repo": target_repo_name,
+        },
+    ) as root_span:
+        # Track state
+        target_issue_id: str | None = None
+        source_title = ""
+        changed_files: list[str] = []
+        matched_watches: list[str] = []
+        dependency_type: str | None = None
+        cascade_skipped = False
+        tb1_result: dict | None = None
+        source_comment_added = False
+
+        try:
+            # ----------------------------------------------------------
+            # Phase 1: Get source issue details
+            # ----------------------------------------------------------
+            with tracer_tb5.start_as_current_span(
+                "tb5.phase.get_source_issue",
+                attributes={"tb5.phase": "get_source_issue"},
+            ) as phase_span:
+                source_details = _get_source_issue_details(source_issue_id)
+                source_title = source_details["title"]
+                phase_span.set_attribute("tb5.source_title", source_title)
+
+            # ----------------------------------------------------------
+            # Phase 2: Detect changed files on source branch
+            # ----------------------------------------------------------
+            with tracer_tb5.start_as_current_span(
+                "tb5.phase.detect_changes",
+                attributes={"tb5.phase": "detect_changes"},
+            ) as phase_span:
+                changed_files = _get_changed_files(source_repo_path, source_issue_id)
+                phase_span.set_attribute("tb5.changed_file_count", len(changed_files))
+                logger.info(
+                    "TB-5: %d files changed on dl/%s",
+                    len(changed_files),
+                    source_issue_id,
+                )
+
+            # ----------------------------------------------------------
+            # Phase 3: Load dependency map + match watches
+            # ----------------------------------------------------------
+            with tracer_tb5.start_as_current_span(
+                "tb5.phase.match_dependencies",
+                attributes={"tb5.phase": "match_dependencies"},
+            ) as phase_span:
+                deps = _load_dependency_map()
+
+                # Find the dependency entry matching source→target
+                dep_entry = None
+                for dep in deps:
+                    if dep["source"] == source_repo_name and dep["target"] == target_repo_name:
+                        dep_entry = dep
+                        break
+
+                if dep_entry is None:
+                    # No dependency configured — cascade skipped
+                    cascade_skipped = True
+                    phase_span.set_attribute("tb5.cascade_skipped", True)
+                    phase_span.set_attribute("tb5.skip_reason", "no_dependency_configured")
+                    logger.info(
+                        "TB-5: No dependency %s → %s configured; skipping cascade",
+                        source_repo_name,
+                        target_repo_name,
+                    )
+                else:
+                    watches = dep_entry.get("watches", [])
+                    dependency_type = dep_entry.get("type", "unknown")
+                    matched_watches = _match_watches(changed_files, watches)
+
+                    phase_span.set_attribute("tb5.dependency_type", dependency_type)
+                    phase_span.set_attribute("tb5.watch_count", len(watches))
+                    phase_span.set_attribute("tb5.matched_watch_count", len(matched_watches))
+
+                    if not matched_watches:
+                        cascade_skipped = True
+                        phase_span.set_attribute("tb5.cascade_skipped", True)
+                        phase_span.set_attribute("tb5.skip_reason", "no_watch_match")
+                        logger.info(
+                            "TB-5: No watch patterns matched for %s → %s; skipping cascade",
+                            source_repo_name,
+                            target_repo_name,
+                        )
+
+            # ----------------------------------------------------------
+            # Early return if cascade not needed
+            # ----------------------------------------------------------
+            if cascade_skipped:
+                elapsed = time.monotonic() - pipeline_start
+                root_span.set_attribute("tb5.outcome", "cascade_skipped")
+                root_span.set_status(trace.StatusCode.OK, "Cascade not needed")
+
+                # Phase 7: Report skip to source issue
+                with tracer_tb5.start_as_current_span(
+                    "tb5.phase.report_outcome",
+                    attributes={"tb5.phase": "report_outcome"},
+                ):
+                    source_comment_added = _report_cascade_outcome(
+                        source_issue_id=source_issue_id,
+                        target_issue_id=None,
+                        target_repo_name=target_repo_name,
+                        success=True,
+                        cascade_skipped=True,
+                    )
+
+                return TB5Result(
+                    issue_id=source_issue_id,
+                    repo_path=source_repo_path,
+                    success=True,
+                    phase="match_dependencies",
+                    target_repo_path=target_repo_path,
+                    changed_files=changed_files,
+                    matched_watches=[],
+                    dependency_type=dependency_type,
+                    cascade_skipped=True,
+                    source_comment_added=source_comment_added,
+                    duration_seconds=round(elapsed, 2),
+                ).model_dump()
+
+            # ----------------------------------------------------------
+            # Phase 5: Create cascade issue in beads for target repo
+            # ----------------------------------------------------------
+            with tracer_tb5.start_as_current_span(
+                "tb5.phase.create_cascade_issue",
+                attributes={"tb5.phase": "create_cascade_issue"},
+            ) as phase_span:
+                target_issue_id = _create_cascade_issue(
+                    source_issue_id=source_issue_id,
+                    source_title=source_title,
+                    target_repo_name=target_repo_name,
+                    matched_watches=matched_watches,
+                    dependency_type=dependency_type or "unknown",
+                )
+                phase_span.set_attribute("tb5.target_issue_id", target_issue_id)
+                logger.info(
+                    "TB-5: Created cascade issue %s for %s",
+                    target_issue_id,
+                    target_repo_name,
+                )
+
+            # ----------------------------------------------------------
+            # Phase 6: Run TB-1 pipeline on target repo
+            # ----------------------------------------------------------
+            with tracer_tb5.start_as_current_span(
+                "tb5.phase.cascade_tb1",
+                attributes={
+                    "tb5.phase": "cascade_tb1",
+                    "tb5.target_issue_id": target_issue_id,
+                    "tb5.target_repo_path": target_repo_path,
+                },
+            ) as phase_span:
+                logger.info(
+                    "TB-5: Running TB-1 on %s with issue %s",
+                    target_repo_name,
+                    target_issue_id,
+                )
+                tb1_result = run_tb1(target_issue_id, target_repo_path)
+                tb1_success = tb1_result.get("success", False)
+                phase_span.set_attribute("tb5.tb1_success", tb1_success)
+
+            # ----------------------------------------------------------
+            # Phase 7: Report outcome back to source issue
+            # ----------------------------------------------------------
+            with tracer_tb5.start_as_current_span(
+                "tb5.phase.report_outcome",
+                attributes={"tb5.phase": "report_outcome"},
+            ):
+                source_comment_added = _report_cascade_outcome(
+                    source_issue_id=source_issue_id,
+                    target_issue_id=target_issue_id,
+                    target_repo_name=target_repo_name,
+                    success=tb1_success,
+                    cascade_skipped=False,
+                    error=tb1_result.get("error"),
+                )
+
+            elapsed = time.monotonic() - pipeline_start
+            outcome = "success" if tb1_success else "tb1_failed"
+            root_span.set_attribute("tb5.outcome", outcome)
+            if tb1_success:
+                root_span.set_status(trace.StatusCode.OK, "Cascade completed successfully")
+            else:
+                root_span.set_status(trace.StatusCode.ERROR, "TB-1 failed on target repo")
+
+            return TB5Result(
+                issue_id=source_issue_id,
+                repo_path=source_repo_path,
+                success=tb1_success,
+                phase="cascade_tb1" if not tb1_success else "report_outcome",
+                target_repo_path=target_repo_path,
+                target_issue_id=target_issue_id,
+                changed_files=changed_files,
+                matched_watches=matched_watches,
+                dependency_type=dependency_type,
+                cascade_skipped=False,
+                tb1_result=tb1_result,
+                source_comment_added=source_comment_added,
+                duration_seconds=round(elapsed, 2),
+            ).model_dump()
+
+        except Exception as exc:
+            elapsed = time.monotonic() - pipeline_start
+            error_msg = f"Pipeline error: {type(exc).__name__}: {exc}"
+            logger.exception("TB-5 pipeline error for issue %s", source_issue_id)
+            root_span.set_status(trace.StatusCode.ERROR, error_msg)
+            root_span.record_exception(exc)
+            return TB5Result(
+                issue_id=source_issue_id,
+                repo_path=source_repo_path,
+                success=False,
+                phase="error",
+                target_repo_path=target_repo_path,
+                target_issue_id=target_issue_id,
+                changed_files=changed_files,
+                matched_watches=matched_watches,
+                dependency_type=dependency_type,
+                cascade_skipped=cascade_skipped,
+                tb1_result=tb1_result,
+                source_comment_added=source_comment_added,
+                error=error_msg,
+                duration_seconds=round(elapsed, 2),
+            ).model_dump()
+
+        finally:
+            # ----------------------------------------------------------
+            # Phase 8: Cleanup — flush OTel
+            # ----------------------------------------------------------
+            try:
+                with tracer_tb5.start_as_current_span(
+                    "tb5.phase.cleanup",
+                    attributes={"tb5.phase": "cleanup"},
+                ):
+                    pass
+            except Exception:
+                pass
+
+            if provider is not None:
+                try:
+                    provider.force_flush(timeout_millis=5000)
+                except Exception:
+                    pass

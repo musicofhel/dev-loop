@@ -147,3 +147,38 @@ class TestTouchMetadataPath:
         from devloop.observability.heartbeat import _touch_metadata_path
 
         _touch_metadata_path(str(tmp_path / "nonexistent.json"))
+
+
+# ---------------------------------------------------------------------------
+# TOCTOU tests (L3 fix)
+# ---------------------------------------------------------------------------
+
+
+class TestFindStaleRunsToctou:
+    """Tests for TOCTOU-safe find_stale_runs()."""
+
+    def test_handles_file_removed_between_rglob_and_read(self, tmp_path):
+        """find_stale_runs skips files that vanish between rglob and read."""
+        import time as _time
+
+        # Create a stale metadata file
+        meta = tmp_path / "wt-1" / ".dev-loop-metadata.json"
+        meta.parent.mkdir()
+        meta.write_text(
+            json.dumps({
+                "issue_id": "TEST-TOCTOU",
+                "last_heartbeat": _time.time() - 600,
+            }),
+            encoding="utf-8",
+        )
+
+        # Verify it works normally
+        with patch("devloop.observability.heartbeat.WORKTREE_BASE", tmp_path):
+            result = find_stale_runs(max_age_minutes=5)
+            assert len(result) == 1
+
+        # Now delete the file and verify no crash
+        meta.unlink()
+        with patch("devloop.observability.heartbeat.WORKTREE_BASE", tmp_path):
+            result = find_stale_runs(max_age_minutes=5)
+            assert result == []

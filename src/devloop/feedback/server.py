@@ -215,6 +215,7 @@ def retry_agent(
     attempt: int = 1,
     max_retries: int = 2,
     model: str = "sonnet",
+    max_turns: int | None = None,
 ) -> dict:
     """Re-spawn agent with failure context and re-run gates."""
     with tracer.start_as_current_span(
@@ -261,17 +262,28 @@ def retry_agent(
             worktree_path=worktree_path,
             task_prompt=prompt_text,
             model=model,
+            max_turns=max_turns,
         )
 
         exit_code = agent_result.get("exit_code", -1)
         span.set_attribute("retry.agent_exit_code", exit_code)
+        span.set_attribute("runtime.num_turns", agent_result.get("num_turns", 0))
+        span.set_attribute("runtime.input_tokens", agent_result.get("input_tokens", 0))
+        span.set_attribute("runtime.output_tokens", agent_result.get("output_tokens", 0))
+
+        # Extract usage stats to pass through in the result dict
+        agent_usage = {
+            "num_turns": agent_result.get("num_turns", 0),
+            "input_tokens": agent_result.get("input_tokens", 0),
+            "output_tokens": agent_result.get("output_tokens", 0),
+        }
 
         if exit_code != 0:
             span.set_status(
                 trace.StatusCode.ERROR,
                 f"Agent exited with code {exit_code} on retry attempt {attempt}",
             )
-            return RetryResult(
+            result = RetryResult(
                 attempt=attempt,
                 max_retries=max_retries,
                 success=False,
@@ -280,6 +292,8 @@ def retry_agent(
                 agent_exit_code=exit_code,
                 error=f"Agent exited with code {exit_code}",
             ).model_dump()
+            result.update(agent_usage)
+            return result
 
         # 3. Re-run quality gates
         gate_raw = run_all_gates(
@@ -292,7 +306,7 @@ def retry_agent(
         except Exception as exc:
             error_msg = f"Malformed gate result on retry {attempt}: {exc}"
             span.set_status(trace.StatusCode.ERROR, error_msg)
-            return RetryResult(
+            result = RetryResult(
                 attempt=attempt,
                 max_retries=max_retries,
                 success=False,
@@ -301,6 +315,8 @@ def retry_agent(
                 agent_exit_code=exit_code,
                 error=error_msg,
             ).model_dump()
+            result.update(agent_usage)
+            return result
 
         span.set_attribute("retry.gates_passed", gate_suite.overall_passed)
         if gate_suite.first_failure:
@@ -314,7 +330,7 @@ def retry_agent(
                 f"Retry {attempt} failed at {gate_suite.first_failure}",
             )
 
-        return RetryResult(
+        result = RetryResult(
             attempt=attempt,
             max_retries=max_retries,
             success=gate_suite.overall_passed,
@@ -322,6 +338,8 @@ def retry_agent(
             escalated=False,
             agent_exit_code=exit_code,
         ).model_dump()
+        result.update(agent_usage)
+        return result
 
 
 @mcp.tool(
@@ -336,6 +354,7 @@ def escalate_to_human(
     issue_id: str,
     gate_failures: list[dict],
     attempts: int,
+    usage_breakdown: list[dict] | None = None,
 ) -> dict:
     """Mark issue as blocked with a failure summary comment."""
     with tracer.start_as_current_span(
@@ -369,6 +388,22 @@ def escalate_to_human(
                     comment_lines.append(f"- [{sev}]{loc} {msg}")
         else:
             comment_lines.append("No structured failure details available.")
+
+        # Append usage breakdown table if provided (TB-4)
+        if usage_breakdown:
+            comment_lines.append("")
+            comment_lines.append("### Usage Breakdown")
+            comment_lines.append("")
+            comment_lines.append("| Attempt | Turns | Input Tokens | Output Tokens | Cumulative Turns |")
+            comment_lines.append("|---------|-------|-------------|---------------|-----------------|")
+            for entry in usage_breakdown:
+                comment_lines.append(
+                    f"| {entry.get('attempt', '?')} "
+                    f"| {entry.get('num_turns', 0)} "
+                    f"| {entry.get('input_tokens', 0):,} "
+                    f"| {entry.get('output_tokens', 0):,} "
+                    f"| {entry.get('cumulative_turns', 0)} |"
+                )
 
         comment_lines.append("")
         comment_lines.append("Needs human review. The worktree may still contain partial work.")

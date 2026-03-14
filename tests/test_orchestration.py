@@ -8,6 +8,7 @@ from devloop.orchestration.server import (
     AGENTS_CONFIG,
     _load_agents_config,
     _match_persona,
+    select_persona,
 )
 
 # ---------------------------------------------------------------------------
@@ -118,3 +119,37 @@ class TestMatchPersona:
         name, _ = result
         # Both have overlap=1, so whichever is first in dict iteration wins
         assert name in ("bug-fix", "feature")
+
+
+# ---------------------------------------------------------------------------
+# select_persona max_turns_default tests (TB-4)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectPersonaMaxTurns:
+    """Tests that select_persona extracts max_turns_default from config."""
+
+    def test_bug_fix_returns_10_turns(self):
+        """Bug-fix persona returns max_turns_default=10 from agents.yaml."""
+        result = select_persona(["bug"])
+        assert result["max_turns_default"] == 10
+
+    def test_feature_returns_25_turns(self):
+        """Feature persona returns max_turns_default=25 from agents.yaml."""
+        result = select_persona(["feature"])
+        assert result["max_turns_default"] == 25
+
+    def test_docs_returns_10_turns(self):
+        """Docs persona returns max_turns_default=10 from agents.yaml."""
+        result = select_persona(["docs"])
+        assert result["max_turns_default"] == 10
+
+    def test_fallback_returns_default(self):
+        """Unmatched labels fallback to feature persona's max_turns_default."""
+        result = select_persona(["unknown-label"])
+        assert result["max_turns_default"] == 25  # feature default from yaml
+
+    def test_security_fix_returns_15_turns(self):
+        """Security-fix persona returns max_turns_default=15."""
+        result = select_persona(["security"])
+        assert result["max_turns_default"] == 15

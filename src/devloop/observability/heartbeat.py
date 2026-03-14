@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 
 from devloop.paths import WORKTREE_BASE
@@ -72,15 +73,21 @@ def start_heartbeat(
 
     def _heartbeat_loop() -> None:
         while not stop_event.is_set():
-            with tracer.start_as_current_span(
-                "runtime.heartbeat",
-                attributes={
-                    "issue.id": issue_id,
-                    "heartbeat.interval_seconds": interval_seconds,
-                    "heartbeat.timestamp": time.time(),
-                },
-            ):
-                _touch_metadata_path(meta_path)
+            # Detach from pipeline's active span context so heartbeat spans
+            # are root spans, not children of the pipeline trace (L7 fix).
+            token = otel_context.attach(otel_context.Context())
+            try:
+                with tracer.start_as_current_span(
+                    "runtime.heartbeat",
+                    attributes={
+                        "issue.id": issue_id,
+                        "heartbeat.interval_seconds": interval_seconds,
+                        "heartbeat.timestamp": time.time(),
+                    },
+                ):
+                    _touch_metadata_path(meta_path)
+            finally:
+                otel_context.detach(token)
 
             stop_event.wait(timeout=interval_seconds)
 
@@ -155,8 +162,12 @@ def find_stale_runs(max_age_minutes: int = 5) -> list[dict]:
         span.set_attribute("heartbeat.worktree_base_exists", True)
 
         for meta_path in WORKTREE_BASE.rglob(METADATA_FILENAME):
+            # TOCTOU guard: metadata files can vanish between rglob and
+            # read_text if another process cleans up the worktree (L3 fix).
             try:
                 raw = json.loads(meta_path.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                continue  # File removed between rglob and read — skip
             except (json.JSONDecodeError, OSError):
                 # Corrupted or unreadable metadata — treat mtime as heartbeat
                 raw = {}
@@ -166,6 +177,8 @@ def find_stale_runs(max_age_minutes: int = 5) -> list[dict]:
             if last_beat is None:
                 try:
                     last_beat = meta_path.stat().st_mtime
+                except FileNotFoundError:
+                    continue  # File removed between read and stat — skip
                 except OSError:
                     continue
 
