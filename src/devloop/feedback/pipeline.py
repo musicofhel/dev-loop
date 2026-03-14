@@ -429,7 +429,8 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     elapsed,
                 )
                 root_span.set_attribute("tb1.outcome", "success")
-                root_span.set_status(trace.StatusCode.OK, "All gates passed")
+                root_span.set_attribute("status.detail", "All gates passed")
+                root_span.set_status(trace.StatusCode.OK)
                 pipeline_success = True
                 return TB1Result(
                     issue_id=issue_id,
@@ -2364,7 +2365,8 @@ def run_tb4(
                         )
                         root_span.set_attribute("tb4.outcome", "success")
                         root_span.set_attribute("tb4.turns_used_total", turns_used_total)
-                        root_span.set_status(trace.StatusCode.OK, "All gates passed")
+                        root_span.set_attribute("status.detail", "All gates passed")
+                        root_span.set_status(trace.StatusCode.OK)
                         pipeline_success = True
                         return TB4Result(
                             issue_id=issue_id,
@@ -2926,7 +2928,8 @@ def run_tb5(source_issue_id: str, source_repo_path: str, target_repo_path: str) 
             if cascade_skipped:
                 elapsed = time.monotonic() - pipeline_start
                 root_span.set_attribute("tb5.outcome", "cascade_skipped")
-                root_span.set_status(trace.StatusCode.OK, "Cascade not needed")
+                root_span.set_attribute("status.detail", "Cascade not needed")
+                root_span.set_status(trace.StatusCode.OK)
 
                 # Phase 7: Report skip to source issue
                 with tracer_tb5.start_as_current_span(
@@ -3016,7 +3019,8 @@ def run_tb5(source_issue_id: str, source_repo_path: str, target_repo_path: str) 
             outcome = "success" if tb1_success else "tb1_failed"
             root_span.set_attribute("tb5.outcome", outcome)
             if tb1_success:
-                root_span.set_status(trace.StatusCode.OK, "Cascade completed successfully")
+                root_span.set_attribute("status.detail", "Cascade completed successfully")
+                root_span.set_status(trace.StatusCode.OK)
             else:
                 root_span.set_status(trace.StatusCode.ERROR, "TB-1 failed on target repo")
 
@@ -3542,7 +3546,8 @@ def run_tb6(
             if gate_suite.overall_passed:
                 elapsed = time.monotonic() - pipeline_start
                 root_span.set_attribute("tb6.outcome", "success_first_attempt")
-                root_span.set_status(trace.StatusCode.OK, "Gates passed")
+                root_span.set_attribute("status.detail", "Gates passed")
+                root_span.set_status(trace.StatusCode.OK)
                 pipeline_success = True
                 return TB6Result(
                     issue_id=issue_id, repo_path=repo_path,
@@ -3621,7 +3626,8 @@ def run_tb6(
             outcome = "success" if pipeline_success else "escalated"
             root_span.set_attribute("tb6.outcome", outcome)
             if pipeline_success:
-                root_span.set_status(trace.StatusCode.OK, "Gates passed")
+                root_span.set_attribute("status.detail", "Gates passed")
+                root_span.set_status(trace.StatusCode.OK)
             else:
                 root_span.set_status(trace.StatusCode.ERROR, "Retries exhausted")
 

@@ -231,7 +231,8 @@ def retry_agent(
         # Guard: don't exceed max retries
         if attempt > max_retries:
             span.set_attribute("retry.exceeded", True)
-            span.set_status(trace.StatusCode.OK, "Max retries exceeded")
+            span.set_attribute("status.detail", "Max retries exceeded")
+            span.set_status(trace.StatusCode.OK)
             return RetryResult(
                 attempt=attempt,
                 max_retries=max_retries,
@@ -323,7 +324,8 @@ def retry_agent(
             span.set_attribute("retry.first_failure", gate_suite.first_failure)
 
         if gate_suite.overall_passed:
-            span.set_status(trace.StatusCode.OK, f"Retry {attempt} succeeded")
+            span.set_attribute("status.detail", f"Retry {attempt} succeeded")
+            span.set_status(trace.StatusCode.OK)
         else:
             span.set_status(
                 trace.StatusCode.ERROR,

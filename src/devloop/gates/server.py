@@ -456,7 +456,8 @@ def run_gate_05_relevance(
                 )
             )
             span.set_attribute("gate.status", "pass")
-            span.set_status(trace.StatusCode.OK, "No keywords to check")
+            span.set_attribute("status.detail", "No keywords to check")
+            span.set_status(trace.StatusCode.OK)
             return GateResult(
                 gate_name="gate_05_relevance",
                 passed=True,
@@ -905,7 +906,8 @@ def run_gate_3_security(worktree_path: str) -> dict:
         if project_type != "python":
             elapsed = time.monotonic() - start
             span.set_attribute("gate.status", "skipped")
-            span.set_status(trace.StatusCode.OK, f"Skipped — {project_type} project")
+            span.set_attribute("status.detail", f"Skipped — {project_type} project")
+            span.set_status(trace.StatusCode.OK)
             return GateResult(
                 gate_name="gate_3_security",
                 passed=True,
@@ -924,7 +926,8 @@ def run_gate_3_security(worktree_path: str) -> dict:
         if bandit_bin is None:
             elapsed = time.monotonic() - start
             span.set_attribute("gate.status", "skipped")
-            span.set_status(trace.StatusCode.OK, "Skipped — bandit not installed")
+            span.set_attribute("status.detail", "Skipped — bandit not installed")
+            span.set_status(trace.StatusCode.OK)
             return GateResult(
                 gate_name="gate_3_security",
                 passed=True,

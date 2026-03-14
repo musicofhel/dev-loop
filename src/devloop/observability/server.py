@@ -230,7 +230,11 @@ def health_check() -> dict:
 
             span.set_attribute("health.status_code", resp.status_code)
             span.set_attribute("health.healthy", healthy)
-            span.set_status(trace.StatusCode.OK if healthy else trace.StatusCode.ERROR, message)
+            span.set_attribute("status.detail", message)
+            if healthy:
+                span.set_status(trace.StatusCode.OK)
+            else:
+                span.set_status(trace.StatusCode.ERROR, message)
 
             return HealthStatus(
                 healthy=healthy,
