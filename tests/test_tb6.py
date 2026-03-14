@@ -180,6 +180,35 @@ class TestParseSessionEvents:
         assert len(events) == 1
         assert events[0]["type"] == "unknown"
 
+    def test_json_array_format(self):
+        """Parses a single-line JSON array (Claude CLI --output-format json)."""
+        import json
+
+        stdout = json.dumps([
+            {"type": "system", "subtype": "init"},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}},
+            {"type": "user", "message": {"role": "user"}},
+            {"type": "result", "num_turns": 5},
+        ])
+        events = _parse_session_events(stdout)
+        assert len(events) == 4
+        types = [e["type"] for e in events]
+        assert types == ["system", "assistant", "user", "result"]
+
+    def test_json_array_with_non_dicts(self):
+        """Skips non-dict entries in JSON array."""
+        import json
+
+        stdout = json.dumps([
+            42,
+            "string",
+            {"type": "result", "num_turns": 1},
+            None,
+        ])
+        events = _parse_session_events(stdout)
+        assert len(events) == 1
+        assert events[0]["type"] == "result"
+
 
 # ---------------------------------------------------------------------------
 # _save_session / _load_session tests

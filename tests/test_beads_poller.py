@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from devloop.intake.beads_poller import WorkItem, claim_issue, poll_ready
+from devloop.intake.beads_poller import WorkItem, claim_issue, get_issue, poll_ready
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -302,3 +302,78 @@ class TestWorkItemProperties:
             labels=["bug", "feature"],
         )
         assert item.persona == "bug-fix"
+
+
+# ---------------------------------------------------------------------------
+# get_issue tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetIssue:
+    """Tests for get_issue() — fetches a single issue via br show --json."""
+
+    @patch("devloop.intake.beads_poller.subprocess.run")
+    def test_get_issue_success(self, mock_run):
+        """get_issue() returns a WorkItem with correct fields."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["br", "show", "dl-abc", "--json"],
+            returncode=0,
+            stdout=json.dumps([{
+                "id": "dl-abc",
+                "title": "Fix auth bug",
+                "issue_type": "bug",
+                "priority": 1,
+                "labels": ["bug", "repo:prompt-bench"],
+                "description": "Auth is broken",
+            }]),
+            stderr="",
+        )
+        item = get_issue("dl-abc")
+        assert item is not None
+        assert item.id == "dl-abc"
+        assert item.title == "Fix auth bug"
+        assert item.labels == ["bug", "repo:prompt-bench"]
+        assert item.type == "bug"
+        assert item.priority == 1
+
+    @patch("devloop.intake.beads_poller.subprocess.run")
+    def test_get_issue_not_found(self, mock_run):
+        """get_issue() returns None when br show fails."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["br", "show", "dl-nope", "--json"],
+            returncode=1,
+            stdout="",
+            stderr="issue not found",
+        )
+        assert get_issue("dl-nope") is None
+
+    @patch("devloop.intake.beads_poller.subprocess.run")
+    def test_get_issue_timeout(self, mock_run):
+        """get_issue() returns None on timeout."""
+        mock_run.side_effect = subprocess.TimeoutExpired(
+            cmd=["br", "show", "dl-abc", "--json"],
+            timeout=30,
+        )
+        assert get_issue("dl-abc") is None
+
+    @patch("devloop.intake.beads_poller.subprocess.run")
+    def test_get_issue_invalid_json(self, mock_run):
+        """get_issue() returns None on unparseable JSON."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["br", "show", "dl-abc", "--json"],
+            returncode=0,
+            stdout="not valid json",
+            stderr="",
+        )
+        assert get_issue("dl-abc") is None
+
+    @patch("devloop.intake.beads_poller.subprocess.run")
+    def test_get_issue_empty_list(self, mock_run):
+        """get_issue() returns None when br show returns empty list."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["br", "show", "dl-abc", "--json"],
+            returncode=0,
+            stdout="[]",
+            stderr="",
+        )
+        assert get_issue("dl-abc") is None

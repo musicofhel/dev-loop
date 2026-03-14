@@ -253,6 +253,45 @@ class TestParseUsageFromOutput:
         assert usage["input_tokens"] == 0
         assert usage["output_tokens"] == 0
 
+    def test_parses_json_array(self):
+        """Extracts usage from a JSON array (Claude CLI --output-format json)."""
+        import json
+
+        stdout = json.dumps([
+            {"type": "system", "subtype": "init"},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}},
+            {"type": "result", "num_turns": 5, "usage": {"input_tokens": 900, "output_tokens": 300}},
+        ])
+        usage = _parse_usage_from_output(stdout)
+        assert usage["num_turns"] == 5
+        assert usage["input_tokens"] == 900
+        assert usage["output_tokens"] == 300
+
+    def test_json_array_no_result(self):
+        """Returns zeros when JSON array has no result object."""
+        import json
+
+        stdout = json.dumps([
+            {"type": "assistant", "message": "hi"},
+        ])
+        usage = _parse_usage_from_output(stdout)
+        assert usage == {"num_turns": 0, "input_tokens": 0, "output_tokens": 0}
+
+    def test_json_array_with_non_dict_entries(self):
+        """Skips non-dict entries in JSON array."""
+        import json
+
+        stdout = json.dumps([
+            1,
+            "string",
+            None,
+            {"type": "result", "num_turns": 2, "usage": {"input_tokens": 100, "output_tokens": 50}},
+        ])
+        usage = _parse_usage_from_output(stdout)
+        assert usage["num_turns"] == 2
+        assert usage["input_tokens"] == 100
+        assert usage["output_tokens"] == 50
+
 
 # ---------------------------------------------------------------------------
 # _build_command tests (TB-4: --output-format json, --max-turns)
