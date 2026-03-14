@@ -31,6 +31,10 @@ stack-health:
     @echo "=== Beads ===" && br stats --quiet 2>/dev/null && echo "  OK" || echo "  NOT INITIALIZED"
     @echo "=== Anthropic API ===" && echo "TODO: verify Anthropic API key"
 
+# Import dashboards into OpenObserve
+stack-import:
+    uv run python scripts/import-dashboards.py --delete-existing
+
 # ─── Beads (Issue Tracking) ───
 
 # Show what's ready to work on
