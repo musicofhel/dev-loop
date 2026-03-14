@@ -95,6 +95,55 @@ def claim_issue(issue_id: str) -> bool:
     return False
 
 
+def get_issue(issue_id: str) -> WorkItem | None:
+    """Fetch a single issue by ID via ``br show <id> --json``.
+
+    Returns a WorkItem or None on failure.  This is used as a fallback
+    when an issue isn't found in the ``poll_ready()`` results (e.g. because
+    it was already claimed or is in a non-ready state).
+    """
+    try:
+        result = subprocess.run(
+            ["br", "show", issue_id, "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("Timed out fetching issue %s", issue_id)
+        return None
+    if result.returncode != 0:
+        logger.warning(
+            "br show %s failed (exit %d): %s",
+            issue_id,
+            result.returncode,
+            result.stderr.strip(),
+        )
+        return None
+
+    try:
+        data = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        logger.error("Failed to parse br show JSON for %s", issue_id)
+        return None
+
+    # br show --json returns a list with one element
+    issue = data[0] if isinstance(data, list) and data else data
+    if not isinstance(issue, dict):
+        return None
+
+    return WorkItem(
+        id=issue.get("id", issue_id),
+        title=issue.get("title", issue_id),
+        type=issue.get("issue_type", issue.get("type", "task")),
+        priority=issue.get("priority", 2),
+        labels=issue.get("labels", []),
+        description=issue.get("description"),
+        parent=issue.get("parent"),
+    )
+
+
 def poll_ready() -> list[WorkItem]:
     """Poll beads for ready issues. Returns WorkItems sorted by priority."""
     try:

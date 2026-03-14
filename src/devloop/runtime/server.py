@@ -84,6 +84,7 @@ def _build_command(
     cmd = [
         claude_path,
         "--print",
+        "--dangerously-skip-permissions",
         "--output-format",
         "json",
         "--model",
@@ -115,28 +116,41 @@ def _is_claude_process(pid: int) -> bool:
 
 
 def _parse_usage_from_output(stdout: str) -> dict:
-    """Parse usage stats from --output-format json NDJSON output.
+    """Parse usage stats from ``--output-format json`` output.
 
-    Scans for the ``{"type":"result"}`` line and extracts ``num_turns``,
+    The Claude CLI emits either:
+    - A JSON **array** on a single line: ``[{...}, {...}, ...]``
+    - NDJSON with one object per line (older versions)
+
+    Scans for the ``{"type":"result"}`` object and extracts ``num_turns``,
     ``input_tokens``, and ``output_tokens``.  Returns a dict with those
     keys (all defaulting to 0 on parse failure).
     """
     result: dict = {"num_turns": 0, "input_tokens": 0, "output_tokens": 0}
+
+    # Collect all JSON objects — handle both array and NDJSON formats
+    objects: list[dict] = []
     for line in stdout.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
-            obj = json.loads(line)
+            parsed = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(parsed, list):
+            objects.extend(obj for obj in parsed if isinstance(obj, dict))
+        elif isinstance(parsed, dict):
+            objects.append(parsed)
+
+    for obj in objects:
         if obj.get("type") != "result":
             continue
         result["num_turns"] = obj.get("num_turns", 0)
         usage = obj.get("usage") or {}
         result["input_tokens"] = usage.get("input_tokens", 0)
         result["output_tokens"] = usage.get("output_tokens", 0)
-        break  # only need the first result line
+        break
     return result
 
 

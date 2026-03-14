@@ -79,6 +79,7 @@ class TB1Result(BaseModel):
     escalated: bool = False
     error: str | None = None
     duration_seconds: float = 0.0
+    pr_url: str | None = None
 
 
 class SecurityFinding(BaseModel):
