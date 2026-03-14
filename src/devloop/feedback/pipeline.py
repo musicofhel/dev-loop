@@ -36,12 +36,13 @@ from devloop.feedback.server import escalate_to_human, retry_agent
 from devloop.feedback.types import RetryAttempt, SecurityFinding, SessionEvent, TB1Result, TB2Result, TB3Result, TB4Result, TB5Result, TB6Result, UsageBreakdown
 from devloop.gates.server import run_all_gates
 from devloop.gates.types import Finding, GateResult, GateSuiteResult
-from devloop.intake.beads_poller import claim_issue, poll_ready
+from devloop.intake.beads_poller import claim_issue, get_issue, poll_ready
 from devloop.observability.heartbeat import start_heartbeat, stop_heartbeat
 from devloop.observability.tracing import init_tracing
 from devloop.orchestration.server import (
     build_claude_md_overlay,
     cleanup_worktree,
+    create_pull_request,
     select_persona,
     setup_worktree,
 )
@@ -66,6 +67,7 @@ tracer_tb6 = trace.get_tracer("tb6", "0.1.0")
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[3] / "test-fixtures"
 _CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
+_CAPABILITIES_CONFIG = _CONFIG_DIR / "capabilities.yaml"
 _SESSIONS_DIR = Path("/tmp/dev-loop/sessions")
 
 
@@ -109,6 +111,24 @@ def _unclaim_issue(issue_id: str) -> None:
         logger.info("Unclaimed issue %s (set to open)", issue_id)
     except Exception:
         logger.warning("Failed to unclaim issue %s", issue_id)
+
+
+def _load_allowed_tools(repo_path: str) -> list[str] | None:
+    """Load per-project allowed tools from capabilities.yaml."""
+    if not _CAPABILITIES_CONFIG.exists():
+        return None
+    try:
+        with open(_CAPABILITIES_CONFIG) as f:
+            config = yaml.safe_load(f) or {}
+    except Exception:
+        return None
+    # Match by repo basename (e.g. "prompt-bench")
+    repo_name = Path(repo_path).name
+    project = config.get(repo_name, {})
+    tools = project.get("allowed_tools")
+    if isinstance(tools, list) and tools:
+        return tools
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -177,14 +197,10 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                         break
 
                 if issue is None:
-                    # Issue might not be in the "ready" list — that's OK,
-                    # we'll proceed with the ID and let claim handle it.
+                    # Issue might not be in the "ready" list — fetch directly.
                     poll_span.set_attribute("tb1.issue_found_in_poll", False)
-                    logger.info(
-                        "Issue %s not found in ready poll (may already be claimed or not ready); "
-                        "proceeding with claim attempt",
-                        issue_id,
-                    )
+                    issue = get_issue(issue_id)
+                if issue is None:
                     issue_title = issue_id
                     issue_description = ""
                     issue_labels: list[str] = []
@@ -193,6 +209,11 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     issue_title = issue.title
                     issue_description = issue.description or ""
                     issue_labels = issue.labels
+                    # br ready --json omits labels; enrich via get_issue
+                    if not issue_labels:
+                        full_issue = get_issue(issue_id)
+                        if full_issue and full_issue.labels:
+                            issue_labels = full_issue.labels
 
                 poll_span.set_attribute("tb1.ready_count", len(items))
 
@@ -304,10 +325,12 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 # Build the task prompt from the overlay
                 task_prompt = overlay_text or f"Fix issue: {issue_title}\n\n{issue_description}"
 
+                allowed_tools = _load_allowed_tools(repo_path)
                 agent_result = spawn_agent(
                     worktree_path=worktree_path,
                     task_prompt=task_prompt,
                     model=persona_result.get("model", "sonnet"),
+                    allowed_tools=allowed_tools,
                 )
 
                 agent_exit = agent_result.get("exit_code", -1)
@@ -371,6 +394,34 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
             # Phase 9: Gates passed -> success
             # ----------------------------------------------------------
             if gate_suite.overall_passed:
+                # ----------------------------------------------------------
+                # Phase 9a: Create PR (if gates passed)
+                # ----------------------------------------------------------
+                pr_url: str | None = None
+                with tracer.start_as_current_span(
+                    "tb1.phase.create_pr",
+                    attributes={"tb1.phase": "create_pr"},
+                ) as pr_span:
+                    pr_result = create_pull_request(
+                        issue_id=issue_id,
+                        repo_path=repo_path,
+                        worktree_path=worktree_path,
+                        branch_name=f"dl/{issue_id}",
+                        issue_title=issue_title,
+                        issue_description=issue_description,
+                        gate_summary=f"All gates passed ({len(gate_suite.gate_results)} gates)",
+                    )
+                    pr_span.set_attribute("tb1.pr_created", pr_result.get("success", False))
+                    if pr_result.get("pr_url"):
+                        pr_span.set_attribute("tb1.pr_url", pr_result["pr_url"])
+                        pr_url = pr_result["pr_url"]
+                    if not pr_result.get("success"):
+                        logger.warning(
+                            "TB-1 PR creation failed for %s: %s (pipeline still succeeds)",
+                            issue_id,
+                            pr_result.get("message", "unknown error"),
+                        )
+
                 elapsed = time.monotonic() - pipeline_start
                 logger.info(
                     "TB-1 SUCCESS: Issue %s — all gates passed in %.1fs",
@@ -391,6 +442,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     gate_results=gate_suite,
                     max_retries=max_retries,
                     duration_seconds=round(elapsed, 2),
+                    pr_url=pr_url,
                 ).model_dump()
 
             # ----------------------------------------------------------
@@ -435,6 +487,37 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     retry_span.set_attribute("tb1.retry_success", retry_success)
 
                     if retry_success:
+                        # Reconstruct gate results from the retry
+                        retry_gate_results = retry_raw.get("gate_results")
+                        if retry_gate_results:
+                            gate_suite = GateSuiteResult(**retry_gate_results)
+
+                        # Create PR after retry success
+                        retry_pr_url: str | None = None
+                        with tracer.start_as_current_span(
+                            "tb1.phase.create_pr_after_retry",
+                            attributes={"tb1.phase": "create_pr"},
+                        ) as retry_pr_span:
+                            retry_pr_result = create_pull_request(
+                                issue_id=issue_id,
+                                repo_path=repo_path,
+                                worktree_path=worktree_path,
+                                branch_name=f"dl/{issue_id}",
+                                issue_title=issue_title,
+                                issue_description=issue_description,
+                                gate_summary=f"All gates passed after {attempt} retry(ies) ({len(gate_suite.gate_results)} gates)",
+                            )
+                            retry_pr_span.set_attribute("tb1.pr_created", retry_pr_result.get("success", False))
+                            if retry_pr_result.get("pr_url"):
+                                retry_pr_span.set_attribute("tb1.pr_url", retry_pr_result["pr_url"])
+                                retry_pr_url = retry_pr_result["pr_url"]
+                            if not retry_pr_result.get("success"):
+                                logger.warning(
+                                    "TB-1 PR creation failed for %s after retry: %s (pipeline still succeeds)",
+                                    issue_id,
+                                    retry_pr_result.get("message", "unknown error"),
+                                )
+
                         elapsed = time.monotonic() - pipeline_start
                         logger.info(
                             "TB-1 SUCCESS after retry %d: Issue %s in %.1fs",
@@ -442,10 +525,6 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                             issue_id,
                             elapsed,
                         )
-                        # Reconstruct gate results from the retry
-                        retry_gate_results = retry_raw.get("gate_results")
-                        if retry_gate_results:
-                            gate_suite = GateSuiteResult(**retry_gate_results)
 
                         root_span.set_attribute("tb1.outcome", "success_after_retry")
                         root_span.set_attribute("tb1.retries_used", attempt)
@@ -466,6 +545,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                             retries_used=attempt,
                             max_retries=max_retries,
                             duration_seconds=round(elapsed, 2),
+                            pr_url=retry_pr_url,
                         ).model_dump()
 
                     # Accumulate failures for next retry prompt (M6: include spawn failures)
@@ -747,10 +827,8 @@ def run_tb2(
 
                 if issue is None:
                     poll_span.set_attribute("tb2.issue_found_in_poll", False)
-                    logger.info(
-                        "Issue %s not found in ready poll; proceeding with claim",
-                        issue_id,
-                    )
+                    issue = get_issue(issue_id)
+                if issue is None:
                     issue_title = issue_id
                     issue_description = ""
                     issue_labels: list[str] = []
@@ -759,6 +837,10 @@ def run_tb2(
                     issue_title = issue.title
                     issue_description = issue.description or ""
                     issue_labels = issue.labels
+                    if not issue_labels:
+                        full_issue = get_issue(issue_id)
+                        if full_issue and full_issue.labels:
+                            issue_labels = full_issue.labels
 
                 poll_span.set_attribute("tb2.ready_count", len(items))
 
@@ -874,10 +956,12 @@ def run_tb2(
             ) as agent_span:
                 task_prompt = overlay_text or f"Fix issue: {issue_title}\n\n{issue_description}"
 
+                allowed_tools = _load_allowed_tools(repo_path)
                 agent_result = spawn_agent(
                     worktree_path=worktree_path,
                     task_prompt=task_prompt,
                     model=persona_result.get("model", "sonnet"),
+                    allowed_tools=allowed_tools,
                 )
 
                 agent_exit = agent_result.get("exit_code", -1)
@@ -1460,10 +1544,8 @@ def run_tb3(
 
                 if issue is None:
                     poll_span.set_attribute("tb3.issue_found_in_poll", False)
-                    logger.info(
-                        "Issue %s not found in ready poll; proceeding with claim",
-                        issue_id,
-                    )
+                    issue = get_issue(issue_id)
+                if issue is None:
                     issue_title = issue_id
                     issue_description = ""
                     issue_labels: list[str] = ["security"]
@@ -1472,6 +1554,10 @@ def run_tb3(
                     issue_title = issue.title
                     issue_description = issue.description or ""
                     issue_labels = issue.labels
+                    if not issue_labels:
+                        full_issue = get_issue(issue_id)
+                        if full_issue and full_issue.labels:
+                            issue_labels = full_issue.labels
                     # Ensure security label for persona selection
                     if "security" not in issue_labels:
                         issue_labels.append("security")
@@ -2028,10 +2114,8 @@ def run_tb4(
 
                 if issue is None:
                     poll_span.set_attribute("tb4.issue_found_in_poll", False)
-                    logger.info(
-                        "Issue %s not found in ready poll; proceeding with claim",
-                        issue_id,
-                    )
+                    issue = get_issue(issue_id)
+                if issue is None:
                     issue_title = issue_id
                     issue_description = ""
                     issue_labels: list[str] = []
@@ -2040,6 +2124,10 @@ def run_tb4(
                     issue_title = issue.title
                     issue_description = issue.description or ""
                     issue_labels = issue.labels
+                    if not issue_labels:
+                        full_issue = get_issue(issue_id)
+                        if full_issue and full_issue.labels:
+                            issue_labels = full_issue.labels
 
                 poll_span.set_attribute("tb4.ready_count", len(items))
 
@@ -2155,11 +2243,13 @@ def run_tb4(
                 attempt_span_ids.append(_span_id_hex(agent_span))
                 task_prompt = overlay_text or f"Fix issue: {issue_title}\n\n{issue_description}"
 
+                allowed_tools = _load_allowed_tools(repo_path)
                 agent_result = spawn_agent(
                     worktree_path=worktree_path,
                     task_prompt=task_prompt,
                     model=persona_result.get("model", "sonnet"),
                     max_turns=remaining_turns,
+                    allowed_tools=allowed_tools,
                 )
 
                 agent_exit = agent_result.get("exit_code", -1)
@@ -3000,24 +3090,38 @@ def _generate_session_id(issue_id: str) -> str:
 
 
 def _parse_session_events(stdout: str) -> list[dict]:
-    """Parse ALL NDJSON lines from agent stdout into SessionEvent dicts.
+    """Parse agent stdout (JSON array or NDJSON) into SessionEvent dicts.
 
-    Each valid JSON line becomes a SessionEvent with line_number, type, and data.
-    Non-JSON lines are skipped (agent may emit plain text alongside NDJSON).
+    The Claude CLI emits either:
+    - A JSON **array** on a single line: ``[{...}, {...}, ...]``
+    - NDJSON with one object per line (older versions)
+
+    Each valid JSON object becomes a SessionEvent with line_number, type, and data.
+    Non-JSON lines are skipped.
     """
-    events: list[dict] = []
+    # Collect all JSON objects — handle both array and NDJSON formats
+    objects: list[tuple[int, dict]] = []
     for i, line in enumerate(stdout.splitlines(), start=1):
         line = line.strip()
         if not line:
             continue
         try:
-            obj = json.loads(line)
+            parsed = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(parsed, list):
+            for idx, obj in enumerate(parsed):
+                if isinstance(obj, dict):
+                    objects.append((i + idx, obj))
+        elif isinstance(parsed, dict):
+            objects.append((i, parsed))
+
+    events: list[dict] = []
+    for line_number, obj in objects:
         event_type = obj.get("type", "unknown")
         events.append(
             SessionEvent(
-                line_number=i,
+                line_number=line_number,
                 type=event_type,
                 data=obj,
             ).model_dump()
@@ -3259,6 +3363,8 @@ def run_tb6(
                         break
                 if issue is None:
                     poll_span.set_attribute("tb6.issue_found_in_poll", False)
+                    issue = get_issue(issue_id)
+                if issue is None:
                     issue_title = issue_id
                     issue_description = ""
                     issue_labels: list[str] = []
@@ -3267,6 +3373,10 @@ def run_tb6(
                     issue_title = issue.title
                     issue_description = issue.description or ""
                     issue_labels = issue.labels
+                    if not issue_labels:
+                        full_issue = get_issue(issue_id)
+                        if full_issue and full_issue.labels:
+                            issue_labels = full_issue.labels
 
             with tracer_tb6.start_as_current_span(
                 "tb6.phase.claim",
@@ -3342,10 +3452,12 @@ def run_tb6(
                 attributes={"tb6.phase": "spawn_agent", "tb6.attempt": 0},
             ) as agent_span:
                 task_prompt = overlay_text or f"Fix issue: {issue_title}\n\n{issue_description}"
+                allowed_tools = _load_allowed_tools(repo_path)
                 agent_result = spawn_agent(
                     worktree_path=worktree_path,
                     task_prompt=task_prompt,
                     model=persona_result.get("model", "sonnet"),
+                    allowed_tools=allowed_tools,
                 )
                 agent_exit = agent_result.get("exit_code", -1)
                 agent_stdout = agent_result.get("stdout", "")

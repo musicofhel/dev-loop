@@ -45,3 +45,13 @@ class CleanupResult(BaseModel):
     branch_removed: bool
     success: bool
     message: str
+
+
+class PRResult(BaseModel):
+    """Result of creating a pull request."""
+
+    issue_id: str
+    success: bool
+    pr_url: str | None = None
+    branch_name: str = ""
+    message: str = ""

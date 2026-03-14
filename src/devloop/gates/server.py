@@ -4,18 +4,24 @@ This is Layer 4 of the dev-loop harness. Every agent output passes through
 a gauntlet of automated checks before it becomes a PR. Gates run sequentially
 — fail fast, fail cheap.
 
-TB-1 wires only three gates:
-  Gate 0 (Sanity)  — compile + test
-  Gate 2 (Secrets) — gitleaks scan
-  Gate 4 (Review)  — LLM-as-judge code review
+Gates:
+  Gate 0   (Sanity)         — compile + test
+  Gate 0.5 (Relevance)      — keyword overlap between issue and diff
+  Gate 2   (Secrets)        — gitleaks scan
+  Gate 2.5 (Dangerous Ops)  — DB migrations, CI/CD, auth, lock files
+  Gate 3   (Security)       — bandit SAST scan
+  Gate 4   (Review)         — LLM-as-judge code review
+  Gate 5   (Cost)           — turn/token usage check (called separately)
 
 Run standalone:  uv run python -m devloop.gates.server
 """
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -338,6 +344,174 @@ def run_gate_0_sanity(worktree_path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Gate 0.5: Relevance Check
+# ---------------------------------------------------------------------------
+
+# Stopwords filtered out when extracting issue keywords
+_RELEVANCE_STOPWORDS = frozenset({
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "and", "or", "but", "not", "no", "nor", "so", "yet",
+    "to", "in", "for", "of", "on", "at", "by", "with", "from", "as",
+    "it", "its", "this", "that", "these", "those",
+    "fix", "add", "update", "remove", "change", "make", "use", "set",
+    "should", "would", "could", "can", "will", "may", "must",
+    "we", "i", "you", "they", "he", "she",
+    "if", "when", "then", "than", "also", "just", "about",
+    "all", "any", "each", "every", "some", "more", "most",
+    "new", "get", "has", "have", "had", "do", "does", "did",
+})
+
+
+def _extract_keywords(text: str) -> set[str]:
+    """Extract meaningful lowercase keywords from text, filtering stopwords."""
+    words = re.findall(r"[a-zA-Z0-9_]+", text.lower())
+    return {w for w in words if w not in _RELEVANCE_STOPWORDS and len(w) > 1}
+
+
+@mcp.tool(
+    description=(
+        "Gate 0.5 — Relevance check: verifies the diff has some relation to "
+        "the issue being worked on. Uses keyword overlap between the issue "
+        "description and the diff content."
+    ),
+    tags={"gates", "relevance"},
+)
+def run_gate_05_relevance(
+    worktree_path: str,
+    issue_title: str,
+    issue_description: str,
+) -> dict:
+    """Check that the diff is relevant to the issue being worked on."""
+    with tracer.start_as_current_span(
+        "gates.gate_05_relevance",
+        attributes={"gate.name": "relevance", "gate.order": 0.5},
+    ) as span:
+        start = time.monotonic()
+        worktree = Path(worktree_path)
+        findings: list[Finding] = []
+
+        # --- Check worktree exists ---
+        if not worktree.is_dir():
+            elapsed = time.monotonic() - start
+            span.set_status(trace.StatusCode.ERROR, "Worktree does not exist")
+            return GateResult(
+                gate_name="gate_05_relevance",
+                passed=False,
+                findings=[Finding(severity="critical", message=f"Worktree not found: {worktree}")],
+                duration_seconds=round(elapsed, 3),
+                error=f"Worktree not found: {worktree}",
+            ).model_dump()
+
+        # --- Get the diff text ---
+        diff_result = _run_cmd(["git", "diff", "HEAD~1"], cwd=worktree)
+        diff_text = diff_result.stdout.strip()
+
+        if not diff_text:
+            # Try unstaged diff
+            diff_result = _run_cmd(["git", "diff"], cwd=worktree)
+            diff_text = diff_result.stdout.strip()
+
+        if not diff_text:
+            # Try staged diff
+            diff_result = _run_cmd(["git", "diff", "--cached"], cwd=worktree)
+            diff_text = diff_result.stdout.strip()
+
+        if not diff_text:
+            elapsed = time.monotonic() - start
+            span.set_attribute("gate.status", "fail")
+            span.set_status(trace.StatusCode.ERROR, "No diff found")
+            return GateResult(
+                gate_name="gate_05_relevance",
+                passed=False,
+                findings=[
+                    Finding(
+                        severity="critical",
+                        message="No diff found — cannot check relevance",
+                    )
+                ],
+                duration_seconds=round(elapsed, 3),
+            ).model_dump()
+
+        # --- Get changed file list ---
+        files_result = _run_cmd(["git", "diff", "HEAD~1", "--name-only"], cwd=worktree)
+        changed_files = files_result.stdout.strip()
+        if not changed_files:
+            files_result = _run_cmd(["git", "diff", "--name-only"], cwd=worktree)
+            changed_files = files_result.stdout.strip()
+        if not changed_files:
+            files_result = _run_cmd(["git", "diff", "--cached", "--name-only"], cwd=worktree)
+            changed_files = files_result.stdout.strip()
+
+        # --- Extract keywords from issue ---
+        issue_text = f"{issue_title} {issue_description}"
+        keywords = _extract_keywords(issue_text)
+        span.set_attribute("gate.keyword_count", len(keywords))
+
+        if not keywords:
+            elapsed = time.monotonic() - start
+            findings.append(
+                Finding(
+                    severity="warning",
+                    message="No meaningful keywords extracted from issue — relevance check skipped",
+                )
+            )
+            span.set_attribute("gate.status", "pass")
+            span.set_status(trace.StatusCode.OK, "No keywords to check")
+            return GateResult(
+                gate_name="gate_05_relevance",
+                passed=True,
+                findings=findings,
+                duration_seconds=round(elapsed, 3),
+            ).model_dump()
+
+        # --- Check keyword overlap with diff content ---
+        diff_lower = diff_text.lower()
+        files_lower = changed_files.lower()
+        matched_keywords = {kw for kw in keywords if kw in diff_lower or kw in files_lower}
+
+        passed = True
+        if matched_keywords:
+            findings.append(
+                Finding(
+                    severity="info",
+                    message=(
+                        f"Relevance confirmed: {len(matched_keywords)}/{len(keywords)} "
+                        f"issue keywords found in diff. "
+                        f"Matched: {', '.join(sorted(matched_keywords)[:10])}"
+                    ),
+                )
+            )
+        else:
+            # Soft gate: pass with a warning
+            findings.append(
+                Finding(
+                    severity="warning",
+                    message=(
+                        f"No issue keywords found in diff content or filenames. "
+                        f"Keywords checked: {', '.join(sorted(keywords)[:15])}. "
+                        f"Changed files: {changed_files[:200]}. "
+                        f"This may indicate the diff is unrelated to the issue."
+                    ),
+                )
+            )
+
+        elapsed = time.monotonic() - start
+        span.set_attribute("gate.status", "pass" if passed else "fail")
+        span.set_attribute("gate.duration_ms", round(elapsed * 1000))
+        span.set_attribute("gate.findings_count", len(findings))
+        span.set_attribute("gate.matched_keywords", len(matched_keywords))
+
+        span.set_status(trace.StatusCode.OK)
+
+        return GateResult(
+            gate_name="gate_05_relevance",
+            passed=passed,
+            findings=findings,
+            duration_seconds=round(elapsed, 3),
+        ).model_dump()
+
+
+# ---------------------------------------------------------------------------
 # Gate 2: Secrets Scan
 # ---------------------------------------------------------------------------
 
@@ -478,6 +652,210 @@ def run_gate_2_secrets(worktree_path: str) -> dict:
 
         return GateResult(
             gate_name="gate_2_secrets",
+            passed=passed,
+            findings=findings,
+            duration_seconds=round(elapsed, 3),
+        ).model_dump()
+
+
+# ---------------------------------------------------------------------------
+# Gate 2.5: Dangerous Operations Check
+# ---------------------------------------------------------------------------
+
+# Dangerous SQL patterns (case-insensitive)
+_DANGEROUS_SQL_PATTERNS = [
+    (r"\bDROP\s+(TABLE|DATABASE|INDEX|VIEW|SCHEMA)\b", "DROP statement"),
+    (r"\bDELETE\s+FROM\b", "DELETE FROM statement"),
+    (r"\bTRUNCATE\s+(TABLE\s+)?\w+", "TRUNCATE statement"),
+    (r"\bALTER\s+TABLE\b", "ALTER TABLE statement"),
+    (r"\bRENAME\s+(TABLE|COLUMN|INDEX)\b", "RENAME statement"),
+]
+
+# CI/CD file patterns (glob-style)
+_CICD_FILE_PATTERNS = [
+    ".github/workflows/*",
+    "Dockerfile",
+    "Dockerfile.*",
+    "docker-compose*",
+    ".gitlab-ci*",
+    "Jenkinsfile",
+]
+
+# Auth/permission file patterns (glob-style, matched against basename and full path)
+_AUTH_FILE_PATTERNS = [
+    "*auth*",
+    "*permission*",
+    "*rbac*",
+    "*oauth*",
+]
+
+# Lock file pairs: (source, lock)
+_LOCK_FILE_PAIRS = [
+    ("package.json", "package-lock.json"),
+    ("Cargo.toml", "Cargo.lock"),
+    ("pyproject.toml", "uv.lock"),
+    ("pyproject.toml", "poetry.lock"),
+    ("Gemfile", "Gemfile.lock"),
+    ("composer.json", "composer.lock"),
+]
+
+
+@mcp.tool(
+    description=(
+        "Gate 2.5 — Dangerous operations: scans the diff for database migrations, "
+        "CI/CD config changes, auth modifications, and lock file inconsistencies "
+        "that require human review regardless of code quality."
+    ),
+    tags={"gates", "dangerous_ops"},
+)
+def run_gate_25_dangerous_ops(worktree_path: str) -> dict:
+    """Scan the diff for dangerous patterns that require human review."""
+    with tracer.start_as_current_span(
+        "gates.gate_25_dangerous_ops",
+        attributes={"gate.name": "dangerous_ops", "gate.order": 2.5},
+    ) as span:
+        start = time.monotonic()
+        worktree = Path(worktree_path)
+        findings: list[Finding] = []
+
+        # --- Check worktree exists ---
+        if not worktree.is_dir():
+            elapsed = time.monotonic() - start
+            span.set_status(trace.StatusCode.ERROR, "Worktree does not exist")
+            return GateResult(
+                gate_name="gate_25_dangerous_ops",
+                passed=False,
+                findings=[Finding(severity="critical", message=f"Worktree not found: {worktree}")],
+                duration_seconds=round(elapsed, 3),
+                error=f"Worktree not found: {worktree}",
+            ).model_dump()
+
+        # --- Get the diff text ---
+        diff_result = _run_cmd(["git", "diff", "HEAD~1"], cwd=worktree)
+        diff_text = diff_result.stdout.strip()
+
+        if not diff_text:
+            diff_result = _run_cmd(["git", "diff"], cwd=worktree)
+            diff_text = diff_result.stdout.strip()
+
+        if not diff_text:
+            diff_result = _run_cmd(["git", "diff", "--cached"], cwd=worktree)
+            diff_text = diff_result.stdout.strip()
+
+        # --- Get changed file list ---
+        files_result = _run_cmd(["git", "diff", "HEAD~1", "--name-only"], cwd=worktree)
+        changed_files_text = files_result.stdout.strip()
+        if not changed_files_text:
+            files_result = _run_cmd(["git", "diff", "--name-only"], cwd=worktree)
+            changed_files_text = files_result.stdout.strip()
+        if not changed_files_text:
+            files_result = _run_cmd(["git", "diff", "--cached", "--name-only"], cwd=worktree)
+            changed_files_text = files_result.stdout.strip()
+
+        changed_files = [f.strip() for f in changed_files_text.splitlines() if f.strip()]
+
+        # --- 1. Database migration patterns ---
+        if diff_text:
+            for pattern, description in _DANGEROUS_SQL_PATTERNS:
+                matches = re.findall(pattern, diff_text, re.IGNORECASE)
+                if matches:
+                    findings.append(
+                        Finding(
+                            severity="critical",
+                            message=(
+                                f"Dangerous database operation: {description} "
+                                f"found in diff ({len(matches)} occurrence(s))"
+                            ),
+                            rule="dangerous_sql",
+                        )
+                    )
+
+        # --- 2. CI/CD config changes ---
+        for changed_file in changed_files:
+            for cicd_pattern in _CICD_FILE_PATTERNS:
+                if fnmatch.fnmatch(changed_file, cicd_pattern):
+                    findings.append(
+                        Finding(
+                            severity="critical",
+                            message=f"CI/CD config changed: {changed_file}",
+                            file=changed_file,
+                            rule="cicd_change",
+                        )
+                    )
+                    break  # Don't double-report the same file
+
+        # --- 3. Auth/permission changes ---
+        for changed_file in changed_files:
+            basename = Path(changed_file).name.lower()
+            full_lower = changed_file.lower()
+            for auth_pattern in _AUTH_FILE_PATTERNS:
+                if fnmatch.fnmatch(basename, auth_pattern) or fnmatch.fnmatch(full_lower, auth_pattern):
+                    findings.append(
+                        Finding(
+                            severity="critical",
+                            message=f"Auth/permission file changed: {changed_file}",
+                            file=changed_file,
+                            rule="auth_change",
+                        )
+                    )
+                    break  # Don't double-report the same file
+
+        # --- 4. Lock file inconsistency ---
+        changed_set = set(changed_files)
+        for source_file, lock_file in _LOCK_FILE_PAIRS:
+            source_changed = source_file in changed_set
+            lock_changed = lock_file in changed_set
+            if source_changed and not lock_changed:
+                findings.append(
+                    Finding(
+                        severity="critical",
+                        message=(
+                            f"Lock file inconsistency: {source_file} changed but "
+                            f"{lock_file} not updated"
+                        ),
+                        file=source_file,
+                        rule="lock_file_mismatch",
+                    )
+                )
+            elif lock_changed and not source_changed:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        message=(
+                            f"Lock file inconsistency: {lock_file} changed but "
+                            f"{source_file} not modified — verify this is intentional"
+                        ),
+                        file=lock_file,
+                        rule="lock_file_mismatch",
+                    )
+                )
+
+        # --- Determine pass/fail ---
+        passed = not any(f.severity == "critical" for f in findings)
+
+        if passed and not findings:
+            findings.append(
+                Finding(
+                    severity="info",
+                    message="No dangerous operations detected",
+                )
+            )
+
+        elapsed = time.monotonic() - start
+        span.set_attribute("gate.status", "pass" if passed else "fail")
+        span.set_attribute("gate.duration_ms", round(elapsed * 1000))
+        span.set_attribute("gate.findings_count", len(findings))
+
+        if not passed:
+            span.set_status(
+                trace.StatusCode.ERROR,
+                "Gate 2.5 detected dangerous operations requiring review",
+            )
+        else:
+            span.set_status(trace.StatusCode.OK)
+
+        return GateResult(
+            gate_name="gate_25_dangerous_ops",
             passed=passed,
             findings=findings,
             duration_seconds=round(elapsed, 3),
@@ -949,6 +1327,118 @@ def run_gate_4_review(
 
 
 # ---------------------------------------------------------------------------
+# Gate 5: Cost / Usage Check
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(
+    description=(
+        "Gate 5 — Usage check: verifies the agent run stayed within reasonable "
+        "resource bounds. Checks turn count and token usage against thresholds. "
+        "On Claude Code Max, cost is always $0; this gates on turns/tokens."
+    ),
+    tags={"gates", "cost"},
+)
+def run_gate_5_cost(
+    num_turns: int = 0,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    max_turns: int = 25,
+    max_input_tokens: int = 500_000,
+    max_output_tokens: int = 100_000,
+) -> dict:
+    """Check that the agent run stayed within resource bounds."""
+    with tracer.start_as_current_span(
+        "gates.gate_5_cost",
+        attributes={"gate.name": "cost", "gate.order": 5},
+    ) as span:
+        start = time.monotonic()
+        findings: list[Finding] = []
+        passed = True
+
+        # --- Check turn count ---
+        if num_turns > max_turns:
+            findings.append(
+                Finding(
+                    severity="critical",
+                    message=(
+                        f"Turn count exceeded: {num_turns} turns "
+                        f"(max {max_turns})"
+                    ),
+                    rule="max_turns",
+                )
+            )
+            passed = False
+
+        # --- Check input tokens ---
+        if input_tokens > max_input_tokens:
+            findings.append(
+                Finding(
+                    severity="critical",
+                    message=(
+                        f"Input token usage exceeded: {input_tokens:,} tokens "
+                        f"(max {max_input_tokens:,})"
+                    ),
+                    rule="max_input_tokens",
+                )
+            )
+            passed = False
+
+        # --- Check output tokens ---
+        if output_tokens > max_output_tokens:
+            findings.append(
+                Finding(
+                    severity="critical",
+                    message=(
+                        f"Output token usage exceeded: {output_tokens:,} tokens "
+                        f"(max {max_output_tokens:,})"
+                    ),
+                    rule="max_output_tokens",
+                )
+            )
+            passed = False
+
+        # --- Add usage summary ---
+        total_tokens = input_tokens + output_tokens
+        findings.append(
+            Finding(
+                severity="info",
+                message=(
+                    f"Usage summary: {num_turns} turns, "
+                    f"{input_tokens:,} input tokens, "
+                    f"{output_tokens:,} output tokens, "
+                    f"{total_tokens:,} total tokens"
+                ),
+                rule="usage_summary",
+            )
+        )
+
+        elapsed = time.monotonic() - start
+        span.set_attribute("gate.status", "pass" if passed else "fail")
+        span.set_attribute("gate.duration_ms", round(elapsed * 1000))
+        span.set_attribute("gate.findings_count", len(findings))
+        span.set_attribute("gate.num_turns", num_turns)
+        span.set_attribute("gate.input_tokens", input_tokens)
+        span.set_attribute("gate.output_tokens", output_tokens)
+        span.set_attribute("gate.total_tokens", total_tokens)
+
+        if not passed:
+            span.set_status(
+                trace.StatusCode.ERROR,
+                "Gate 5 usage check exceeded thresholds",
+            )
+        else:
+            span.set_status(trace.StatusCode.OK)
+
+        return GateResult(
+            gate_name="gate_5_cost",
+            passed=passed,
+            findings=findings,
+            duration_seconds=round(elapsed, 3),
+        ).model_dump()
+
+
+# ---------------------------------------------------------------------------
 # Run All Gates (fail-fast)
 # ---------------------------------------------------------------------------
 
@@ -956,8 +1446,10 @@ def run_gate_4_review(
 @mcp.tool(
     description=(
         "Run all quality gates in fail-fast order: "
-        "Gate 0 (sanity) → Gate 2 (secrets) → Gate 3 (security) → Gate 4 (review). "
-        "Stops at first failure. Returns overall pass/fail with per-gate results."
+        "Gate 0 (sanity) → Gate 0.5 (relevance) → Gate 2 (secrets) → "
+        "Gate 2.5 (dangerous ops) → Gate 3 (security) → Gate 4 (review). "
+        "Stops at first failure. Returns overall pass/fail with per-gate results. "
+        "Gate 5 (cost) is NOT included — call it separately with usage data."
     ),
     tags={"gates", "suite"},
 )
@@ -966,7 +1458,7 @@ def run_all_gates(
     issue_title: str,
     issue_description: str,
 ) -> dict:
-    """Run gates 0 → 2 → 3 → 4 sequentially, stopping at first failure."""
+    """Run gates 0 → 0.5 → 2 → 2.5 → 3 → 4 sequentially, stopping at first failure."""
     with tracer.start_as_current_span(
         "gates.run_all",
         attributes={"gate.name": "run_all"},
@@ -974,76 +1466,61 @@ def run_all_gates(
         suite_start = time.monotonic()
         gate_results: list[GateResult] = []
         first_failure: str | None = None
-        total_gates = 4
+        total_gates = 6
+
+        def _fail_fast(gate_result: GateResult) -> dict | None:
+            """Check if we should stop. Returns suite result dict on failure, None to continue."""
+            nonlocal first_failure
+            if not gate_result.passed and not gate_result.skipped:
+                first_failure = gate_result.gate_name
+                elapsed = time.monotonic() - suite_start
+                passed_count = sum(1 for g in gate_results if g.passed)
+                span.set_attribute("gates.total", total_gates)
+                span.set_attribute("gates.passed", passed_count)
+                span.set_attribute("gates.failed", 1)
+                span.set_attribute("gates.first_failure", first_failure)
+                span.set_attribute("gates.total_duration_ms", round(elapsed * 1000))
+                span.set_status(trace.StatusCode.ERROR, f"Failed at {first_failure}")
+                return GateSuiteResult(
+                    overall_passed=False,
+                    gate_results=gate_results,
+                    first_failure=first_failure,
+                    total_duration_seconds=round(elapsed, 3),
+                ).model_dump()
+            return None
 
         # --- Gate 0: Sanity ---
-        g0_raw = run_gate_0_sanity(worktree_path)
-        g0 = GateResult(**g0_raw)
+        g0 = GateResult(**run_gate_0_sanity(worktree_path))
         gate_results.append(g0)
+        if (bail := _fail_fast(g0)) is not None:
+            return bail
 
-        if not g0.passed:
-            first_failure = g0.gate_name
-            elapsed = time.monotonic() - suite_start
-            span.set_attribute("gates.total", total_gates)
-            span.set_attribute("gates.passed", 0)
-            span.set_attribute("gates.failed", 1)
-            span.set_attribute("gates.first_failure", first_failure)
-            span.set_attribute("gates.total_duration_ms", round(elapsed * 1000))
-            span.set_status(trace.StatusCode.ERROR, f"Failed at {first_failure}")
-            return GateSuiteResult(
-                overall_passed=False,
-                gate_results=gate_results,
-                first_failure=first_failure,
-                total_duration_seconds=round(elapsed, 3),
-            ).model_dump()
+        # --- Gate 0.5: Relevance ---
+        g05 = GateResult(**run_gate_05_relevance(worktree_path, issue_title, issue_description))
+        gate_results.append(g05)
+        if (bail := _fail_fast(g05)) is not None:
+            return bail
 
         # --- Gate 2: Secrets ---
-        g2_raw = run_gate_2_secrets(worktree_path)
-        g2 = GateResult(**g2_raw)
+        g2 = GateResult(**run_gate_2_secrets(worktree_path))
         gate_results.append(g2)
+        if (bail := _fail_fast(g2)) is not None:
+            return bail
 
-        if not g2.passed:
-            first_failure = g2.gate_name
-            elapsed = time.monotonic() - suite_start
-            passed_count = sum(1 for g in gate_results if g.passed)
-            span.set_attribute("gates.total", total_gates)
-            span.set_attribute("gates.passed", passed_count)
-            span.set_attribute("gates.failed", 1)
-            span.set_attribute("gates.first_failure", first_failure)
-            span.set_attribute("gates.total_duration_ms", round(elapsed * 1000))
-            span.set_status(trace.StatusCode.ERROR, f"Failed at {first_failure}")
-            return GateSuiteResult(
-                overall_passed=False,
-                gate_results=gate_results,
-                first_failure=first_failure,
-                total_duration_seconds=round(elapsed, 3),
-            ).model_dump()
+        # --- Gate 2.5: Dangerous Ops ---
+        g25 = GateResult(**run_gate_25_dangerous_ops(worktree_path))
+        gate_results.append(g25)
+        if (bail := _fail_fast(g25)) is not None:
+            return bail
 
         # --- Gate 3: Security ---
-        g3_raw = run_gate_3_security(worktree_path)
-        g3 = GateResult(**g3_raw)
+        g3 = GateResult(**run_gate_3_security(worktree_path))
         gate_results.append(g3)
-
-        if not g3.passed and not g3.skipped:
-            first_failure = g3.gate_name
-            elapsed = time.monotonic() - suite_start
-            passed_count = sum(1 for g in gate_results if g.passed)
-            span.set_attribute("gates.total", total_gates)
-            span.set_attribute("gates.passed", passed_count)
-            span.set_attribute("gates.failed", 1)
-            span.set_attribute("gates.first_failure", first_failure)
-            span.set_attribute("gates.total_duration_ms", round(elapsed * 1000))
-            span.set_status(trace.StatusCode.ERROR, f"Failed at {first_failure}")
-            return GateSuiteResult(
-                overall_passed=False,
-                gate_results=gate_results,
-                first_failure=first_failure,
-                total_duration_seconds=round(elapsed, 3),
-            ).model_dump()
+        if (bail := _fail_fast(g3)) is not None:
+            return bail
 
         # --- Gate 4: Review ---
-        g4_raw = run_gate_4_review(worktree_path, issue_title, issue_description)
-        g4 = GateResult(**g4_raw)
+        g4 = GateResult(**run_gate_4_review(worktree_path, issue_title, issue_description))
         gate_results.append(g4)
 
         if not g4.passed:

@@ -128,6 +128,24 @@ tb-all:
     @echo "Running all tracer bullets..."
     @echo "TODO: run only TBs that have been implemented"
 
+# ─── Feedback Channels ───
+
+# Channel 2: Detect repeated failure patterns
+patterns *HOURS:
+    uv run python -c "from devloop.feedback.pattern_detector import detect_patterns; import json; print(json.dumps(detect_patterns(hours=int('{{HOURS}}' or '24')), indent=2))"
+
+# Channel 3: Usage summary (turns, tokens)
+usage *HOURS:
+    uv run python -c "from devloop.feedback.cost_monitor import get_usage_summary, check_budget; import json; s = get_usage_summary(hours=int('{{HOURS}}' or '24')); b = check_budget(s); print(json.dumps({'summary': s, 'budget': b}, indent=2))"
+
+# Channel 5: Generate changelog from closed issues
+changelog *DAYS:
+    uv run python -c "from devloop.feedback.changelog import generate_changelog; r = generate_changelog(days=int('{{DAYS}}' or '7')); print(r['markdown'])"
+
+# Channel 7: Analyze session efficiency
+efficiency SESSION_ID:
+    uv run python -c "from devloop.feedback.pipeline import _load_session; from devloop.feedback.efficiency import analyze_efficiency; import json; s = _load_session('{{SESSION_ID}}'); print(json.dumps(analyze_efficiency(s['events']), indent=2))"
+
 # ─── Scoring ───
 
 # Evaluate all tools against scoring rubric
