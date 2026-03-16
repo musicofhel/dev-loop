@@ -31,9 +31,10 @@ stack-health:
     @echo "=== Beads ===" && br stats --quiet 2>/dev/null && echo "  OK" || echo "  NOT INITIALIZED"
     @echo "=== Anthropic API ===" && echo "TODO: verify Anthropic API key"
 
-# Import dashboards into OpenObserve
+# Import dashboards and alerts into OpenObserve
 stack-import:
     uv run python scripts/import-dashboards.py --delete-existing
+    uv run python scripts/import-alerts.py --delete-existing
 
 # ─── Beads (Issue Tracking) ───
 
@@ -251,6 +252,34 @@ docs-toc:
     @echo ""
     @echo "## ADRs"
     @for f in docs/adrs/*.md; do echo "- [$$(head -1 $$f | sed 's/# //')]($$f)"; done
+
+# ─── Daemon (dl) ───
+
+# Build the Rust daemon (debug)
+dl-build:
+    cd daemon && cargo build
+
+# Build the Rust daemon (release) and install to ~/.local/bin
+dl-install:
+    cd daemon && cargo build --release
+    cp daemon/target/release/dl ~/.local/bin/dl
+    @echo "Installed dl to ~/.local/bin/dl"
+
+# Run daemon tests
+dl-test:
+    cd daemon && cargo test
+
+# Start the daemon
+dl-start:
+    dl start
+
+# Stop the daemon
+dl-stop:
+    dl stop
+
+# Daemon status
+dl-status:
+    dl status
 
 # ─── Python / uv ───
 

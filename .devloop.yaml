@@ -1,0 +1,15 @@
+ambient: true
+
+deny_list:
+  # Source code files that match *secret* pattern — not actual secrets
+  remove_patterns: ["*secret*"]
+  extra_patterns: []
+
+dangerous_ops:
+  allow_patterns:
+    - "rm -rf target"
+    - "rm -rf node_modules"
+
+secrets:
+  file_allowlist:
+    - "daemon/src/check/secrets.rs"
