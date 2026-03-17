@@ -244,3 +244,52 @@ mod tests {
         assert!(!DangerousOps::is_git_commit("git push"));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn never_panics(cmd in "\\PC{1,1000}") {
+            let ops = DangerousOps::default_patterns();
+            let _ = ops.check(&cmd);
+        }
+
+        #[test]
+        fn deterministic(cmd in "\\PC{1,500}") {
+            let ops = DangerousOps::default_patterns();
+            let r1 = ops.check(&cmd);
+            let r2 = ops.check(&cmd);
+            prop_assert_eq!(r1.len(), r2.len());
+        }
+
+        #[test]
+        fn no_catastrophic_backtracking(cmd in "[a-zA-Z0-9 |;&/\\-_.=]{1,10000}") {
+            let ops = DangerousOps::default_patterns();
+            let start = std::time::Instant::now();
+            let _ = ops.check(&cmd);
+            prop_assert!(start.elapsed().as_millis() < 100,
+                "Took {}ms on input length {}", start.elapsed().as_millis(), cmd.len());
+        }
+
+        #[test]
+        fn allow_always_overrides(
+            cmd in "[a-zA-Z0-9 \\-/]{5,50}",
+            allow_sub in "[a-zA-Z]{3,15}"
+        ) {
+            // If the command contains the allow substring, no matches should be returned
+            let cmd_with_allow = format!("{} {}", cmd, allow_sub);
+            let ops = DangerousOps::from_config(&[], &[allow_sub.clone()]);
+            let matches = ops.check(&cmd_with_allow);
+            prop_assert!(matches.is_empty(),
+                "Allow pattern '{}' didn't override for cmd '{}'", allow_sub, cmd_with_allow);
+        }
+
+        #[test]
+        fn is_git_commit_never_panics(cmd in "\\PC{1,500}") {
+            let _ = DangerousOps::is_git_commit(&cmd);
+        }
+    }
+}

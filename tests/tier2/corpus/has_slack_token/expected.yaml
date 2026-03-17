@@ -1,0 +1,5 @@
+description: "Slack bot token in source code"
+expected_gates:
+  secrets:
+    passed: false
+    reason_contains: "secret"

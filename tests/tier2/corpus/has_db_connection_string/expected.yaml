@@ -1,0 +1,6 @@
+description: "Database connection string with credentials — gitleaks does not detect connection strings"
+known_gap: true
+note: "Connection strings with embedded passwords are not in gitleaks/betterleaks rule sets"
+expected_gates:
+  secrets:
+    passed: true

@@ -1,0 +1,5 @@
+description: "RSA private key committed to repo"
+expected_gates:
+  secrets:
+    passed: false
+    reason_contains: "secret"

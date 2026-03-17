@@ -84,6 +84,45 @@ pub enum Command {
     },
     /// Reload daemon configuration (sends SIGHUP)
     Reload,
+    /// Run checkpoint gates offline (no daemon needed)
+    #[command(name = "checkpoint")]
+    Checkpoint {
+        /// Directory to run checkpoint on (defaults to cwd)
+        #[arg(long)]
+        dir: Option<String>,
+        /// Output JSON instead of human-readable
+        #[arg(long)]
+        json: bool,
+    },
+    /// Annotate check events with feedback labels (correct/false-positive/missed)
+    Feedback {
+        /// Event ID (line number, e.g., "42" or "L42")
+        event_id: Option<String>,
+        /// Label: correct, false-positive, or missed
+        label: Option<String>,
+        /// Optional notes about the annotation
+        #[arg(long)]
+        notes: Option<String>,
+        /// List recent unlabeled block/warn events for review
+        #[arg(long)]
+        list: bool,
+        /// Show labeled data statistics (precision/recall/F1 per check type)
+        #[arg(long)]
+        stats: bool,
+        /// Number of events to show with --list (default: 20)
+        #[arg(long, default_value = "20")]
+        last: usize,
+    },
+    /// Show shadow mode verdict analysis
+    #[command(name = "shadow-report")]
+    ShadowReport {
+        /// Only show verdicts from the last N hours
+        #[arg(long)]
+        last: Option<u64>,
+        /// Output as CSV instead of human-readable table
+        #[arg(long)]
+        csv: bool,
+    },
 }
 
 #[derive(Subcommand)]

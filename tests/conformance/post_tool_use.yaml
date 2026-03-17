@@ -1,0 +1,122 @@
+# Hook Conformance Test Corpus — PostToolUse checks (secrets in content)
+# Run with: uv run python scripts/conformance/run_conformance.py tests/conformance/post_tool_use.yaml --phase post
+
+# ═══════════════════════════════════════════════════════════════
+# SECRETS — Warn (detected in file content)
+# ═══════════════════════════════════════════════════════════════
+
+- name: "secrets: API key assignment"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "API_KEY = \"sk-1234567890abcdefghijklmnopqrstuvwxyz\""}}
+  expect: warn
+  check_type: secrets
+
+- name: "secrets: AWS access key"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "AWS_ACCESS_KEY_ID = AKIAIOSFODNN7REALKEY1"}}
+  expect: warn
+  check_type: secrets
+
+- name: "secrets: GitHub PAT"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"}}
+  expect: warn
+  check_type: secrets
+
+- name: "secrets: OpenAI key"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "key = \"sk-abcdefghijklmnopqrstuvwxyz123456\""}}
+  expect: warn
+  check_type: secrets
+
+- name: "secrets: Anthropic key"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "ANTHROPIC_API_KEY=sk-ant-api03-very-long-key-string-that-is-at-least-eighty-characters-long-for-the-pattern-to-match-abc"}}
+  expect: warn
+  check_type: secrets
+
+- name: "secrets: Slack bot token"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "SLACK_TOKEN=xoxb-123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx"}}
+  expect: warn
+  check_type: secrets
+
+- name: "secrets: private key header"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "key.txt", "content": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA..."}}
+  expect: warn
+  check_type: secrets
+
+- name: "secrets: DB connection string with password"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "DATABASE_URL=postgres://admin:supersecret@db.example.com:5432/mydb"}}
+  expect: warn
+  check_type: secrets
+
+- name: "secrets: password in config"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.yaml", "content": "password: \"MyS3cur3P@ssw0rd!\""}}
+  expect: warn
+  check_type: secrets
+
+- name: "secrets: high-entropy secret assignment"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "token = \"aB3dEfGhIjKlMnOpQrStUvWxYz0123456789+/=\""}}
+  expect: warn
+  check_type: secrets
+
+# ═══════════════════════════════════════════════════════════════
+# SECRETS — Allow (safe content that could be confused)
+# ═══════════════════════════════════════════════════════════════
+
+- name: "secrets_allow: normal Rust code"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "src/main.rs", "content": "fn main() {\n    let config = Config::new();\n    println!(\"Hello, world!\");\n}"}}
+  expect: allow
+
+- name: "secrets_allow: commented API key"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "# API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyz"}}
+  expect: allow
+
+- name: "secrets_allow: JS commented API key"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.js", "content": "// API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyz"}}
+  expect: allow
+
+- name: "secrets_allow: placeholder with your-"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.env", "content": "API_KEY=your-api-key-here"}}
+  expect: allow
+
+- name: "secrets_allow: placeholder with xxx"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.env", "content": "SECRET_KEY=xxxYOUR_KEY_HERExxxxxxxxxxxxx"}}
+  expect: allow
+
+- name: "secrets_allow: placeholder with EXAMPLE"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.env", "content": "API_KEY=EXAMPLE_KEY_DO_NOT_USE_IN_PRODUCTION"}}
+  expect: allow
+
+- name: "secrets_allow: placeholder with redacted"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.env", "content": "API_KEY=<redacted>"}}
+  expect: allow
+
+- name: "secrets_allow: normal JSON config"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "tsconfig.json", "content": "{\n  \"compilerOptions\": {\n    \"target\": \"es2020\"\n  }\n}"}}
+  expect: allow
+
+- name: "secrets_allow: normal HTML"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "index.html", "content": "<html><body><h1>Hello</h1></body></html>"}}
+  expect: allow
+
+- name: "secrets_allow: Edit tool with safe new_string"
+  input: {"tool_name": "Edit", "tool_input": {"file_path": "src/lib.rs", "old_string": "old code", "new_string": "new safe code"}}
+  expect: allow
+
+- name: "secrets_allow: Edit tool with secret in new_string"
+  input: {"tool_name": "Edit", "tool_input": {"file_path": "config.py", "old_string": "key = \"\"", "new_string": "key = \"sk-1234567890abcdefghijklmnopqrstuvwxyz\""}}
+  expect: warn
+  check_type: secrets
+
+# ═══════════════════════════════════════════════════════════════
+# EDGE CASES
+# ═══════════════════════════════════════════════════════════════
+
+- name: "edge: empty content"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "test.py", "content": ""}}
+  expect: allow
+
+- name: "edge: multiline with one secret line"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config.py", "content": "import os\n\nAPI_KEY = \"sk-1234567890abcdefghijklmnopqrstuvwxyz\"\n\ndef main():\n    pass\n"}}
+  expect: warn
+  check_type: secrets
+
+- name: "edge: Bash tool (no secrets check in pre)"
+  input: {"tool_name": "Bash", "tool_input": {"command": "echo API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyz"}}
+  expect: allow

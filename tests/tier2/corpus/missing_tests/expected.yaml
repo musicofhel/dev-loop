@@ -1,0 +1,5 @@
+description: "Code with no test files - sanity gate should fail when test_command set"
+expected_gates:
+  sanity:
+    passed: false
+    reason_contains: "test command failed"

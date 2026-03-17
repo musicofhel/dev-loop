@@ -1,0 +1,344 @@
+{
+  "analysis": {
+    "total": 9966,
+    "verdicts": {
+      "allow": 9825,
+      "warn": 45,
+      "block": 96
+    },
+    "by_check_type": {
+      "dangerous_ops": 6381,
+      "deny_list": 3575,
+      "secrets": 10
+    },
+    "by_tool": {
+      "Bash": 6381,
+      "Edit": 2595,
+      "Write": 990
+    },
+    "top_blocked_files": [
+      {
+        "file": "/home/musicofhel/dev-loop/daemon/src/check/secrets.rs",
+        "count": 14
+      },
+      {
+        "file": "/home/musicofhel/link-forge/.env.example",
+        "count": 6
+      },
+      {
+        "file": "/home/musicofhel/link-forge/.env",
+        "count": 6
+      },
+      {
+        "file": "rm -rf /tmp/dev-loop/worktrees/dl-2zv 2>&1 && cd ~/prompt-bench && git worktree ",
+        "count": 4
+      },
+      {
+        "file": "/home/musicofhel/procurement-dashboard/.env.example",
+        "count": 3
+      },
+      {
+        "file": "/home/musicofhel/septic-lookup/.env",
+        "count": 2
+      },
+      {
+        "file": ".venv/bin/python -c \"\nimport numpy as np\nimport time\nfrom wavecast.sax.sax impor",
+        "count": 2
+      },
+      {
+        "file": "/home/musicofhel/omniswipe-backend/.env",
+        "count": 2
+      },
+      {
+        "file": "rm -rf /tmp/dev-loop/worktrees/dl-320 2>&1; cd ~/prompt-bench && git worktree pr",
+        "count": 2
+      },
+      {
+        "file": "cd ~/dev-loop && br update dl-320 --status open 2>&1; rm -rf /tmp/dev-loop/workt",
+        "count": 2
+      },
+      {
+        "file": "/home/musicofhel/procurement-dashboard/.env",
+        "count": 2
+      },
+      {
+        "file": "docker compose -f /home/musicofhel/procurement-dashboard/docker-compose.yml exec",
+        "count": 2
+      },
+      {
+        "file": "set -a && source .env && set +a && python -c \"\nimport os, psycopg2\nconn = psycop",
+        "count": 2
+      },
+      {
+        "file": "rm -rf /tmp/link-forge-inbox",
+        "count": 2
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/.env.example",
+        "count": 2
+      },
+      {
+        "file": "rm -rf /tmp/dev-loop/worktrees/dl-1w8 2>&1; cd ~/prompt-bench && git worktree pr",
+        "count": 2
+      },
+      {
+        "file": "rm -rf /tmp/dev-loop/worktrees/test-wt && cd ~/prompt-bench && git worktree prun",
+        "count": 2
+      },
+      {
+        "file": "/home/musicofhel/enterprise-pipeline/.env.example",
+        "count": 2
+      },
+      {
+        "file": "/home/musicofhel/wavecast/.env",
+        "count": 1
+      },
+      {
+        "file": "/home/musicofhel/wavecast/.env.example",
+        "count": 1
+      }
+    ],
+    "top_warned_files": [
+      {
+        "file": "cd ~/link-forge && npx tsx -e \"\nimport Database from 'better-sqlite3';\nconst db ",
+        "count": 2
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/docs/ambient-layer-plan.md",
+        "count": 2
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/tests/conformance/post_tool_use.yaml",
+        "count": 2
+      },
+      {
+        "file": "ps aux | grep -E \"python.*context|python.*exp3\" | grep -v grep | awk '{print $2}",
+        "count": 2
+      },
+      {
+        "file": "ps aux | grep -E 'avenu-register|playwright|chromium' | grep -v grep | awk '{pri",
+        "count": 1
+      },
+      {
+        "file": "ssh musicofhel@192.168.0.237 \"curl -o- https://raw.githubusercontent.com/nvm-sh/",
+        "count": 1
+      },
+      {
+        "file": "ssh musicofhel@192.168.0.237 \"sudo apt install -y curl git && curl -o- https://r",
+        "count": 1
+      },
+      {
+        "file": "ps aux | awk '$8 ~ /Z/ {print $2}' | xargs -r kill -9 2>/dev/null; echo \"Zombie ",
+        "count": 1
+      },
+      {
+        "file": "kill -9 55850 53680 53972 55261 54205 55440 55580 54388 54912 55149 2>&1; echo \"",
+        "count": 1
+      },
+      {
+        "file": "pkill -9 -f \"tsx watch\" 2>/dev/null; pkill -9 -f \"src/index.ts\" 2>/dev/null; sle",
+        "count": 1
+      },
+      {
+        "file": "cd ~/prompt-bench && git branch -D dl/dl-76a 2>&1",
+        "count": 1
+      },
+      {
+        "file": "cd ~/prompt-bench && git branch -D dl/dl-3dl 2>&1 && git worktree prune 2>&1",
+        "count": 1
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/docs/handoff-2026-03-15-phase2-check-engine.md",
+        "count": 1
+      },
+      {
+        "file": "# Test pre-tool-use: git push --force should warn (permissionDecision: ask)\necho",
+        "count": 1
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/daemon/benches/check_engine.rs",
+        "count": 1
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/daemon/tests/turmoil_concurrent.rs",
+        "count": 1
+      },
+      {
+        "file": "cd ~/prompt-bench && git branch -D dl/dl-iofy 2>&1 && git worktree prune 2>&1 &&",
+        "count": 1
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/docs/testing-calibration-plan.yaml",
+        "count": 1
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/docs/calibration-implementation-plan.yaml",
+        "count": 1
+      },
+      {
+        "file": "cd ~/wavecast-dashboard && mkdir -p questdb/questdb_root && chmod 777 questdb/qu",
+        "count": 1
+      }
+    ],
+    "top_reasons": [
+      {
+        "reason": "rm -rf (recursive force delete) (matched: 'rm -rf')",
+        "count": 38
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/dev-loop/daemon/src/check/secrets.rs' matches deny pattern '*sec",
+        "count": 14
+      },
+      {
+        "reason": "kill -9 (SIGKILL) (matched: 'kill -9')",
+        "count": 11
+      },
+      {
+        "reason": "git branch -D (force delete) (matched: 'git branch -D')",
+        "count": 6
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/link-forge/.env.example' matches deny pattern '.env.*'",
+        "count": 6
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/link-forge/.env' matches deny pattern '.env'",
+        "count": 6
+      },
+      {
+        "reason": "chmod -R (recursive permission change) (matched: 'chmod -R ')",
+        "count": 4
+      },
+      {
+        "reason": "DELETE FROM statement (matched: 'DELETE FROM')",
+        "count": 3
+      },
+      {
+        "reason": "rm -fr (recursive force delete) (matched: 'rm\nfr')",
+        "count": 3
+      },
+      {
+        "reason": "kill -9 (SIGKILL) (matched: 'kill -9'); pkill -9 (SIGKILL) (matched: 'pkill -9')",
+        "count": 3
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/procurement-dashboard/.env.example' matches deny pattern '.env.*",
+        "count": 3
+      },
+      {
+        "reason": "rm -rf (recursive force delete) (matched: 'rm -rf'); git branch -D (force delete) (matched: 'git bra",
+        "count": 3
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/septic-lookup/.env' matches deny pattern '.env'",
+        "count": 2
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/omniswipe-backend/.env' matches deny pattern '.env'",
+        "count": 2
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/procurement-dashboard/.env' matches deny pattern '.env'",
+        "count": 2
+      },
+      {
+        "reason": "DROP statement (matched: 'DROP SCHEMA')",
+        "count": 2
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/dev-loop/.env.example' matches deny pattern '.env.*'",
+        "count": 2
+      },
+      {
+        "reason": "curl | sh (pipe to shell) (matched: 'curl --proto '=https' --tlsv1.2 -sSf https://just.systems/insta",
+        "count": 2
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/enterprise-pipeline/.env.example' matches deny pattern '.env.*'",
+        "count": 2
+      },
+      {
+        "reason": "Blocked: write to '/home/musicofhel/wavecast/.env' matches deny pattern '.env'",
+        "count": 1
+      }
+    ],
+    "likely_false_positives": [
+      {
+        "file": "/home/musicofhel/wavecast/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/wavecast/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/procurement-dashboard/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/procurement-dashboard/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/procurement-dashboard/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/procurement-dashboard/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/link-forge/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/link-forge/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/link-forge/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/link-forge/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/dev-loop/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/dev-loop/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/dev-loop/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/link-forge/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/link-forge/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/link-forge/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/link-forge/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/link-forge/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/link-forge/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/link-forge/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/link-forge/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/procurement-dashboard/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/procurement-dashboard/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/enterprise-pipeline/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/enterprise-pipeline/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      },
+      {
+        "file": "/home/musicofhel/enterprise-pipeline/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/enterprise-pipeline/.env.example' matches deny pattern '.env.*'",
+        "check_type": "deny_list"
+      }
+    ],
+    "repeat_blocked_files": {
+      "/home/musicofhel/dev-loop/daemon/src/check/secrets.rs": 14,
+      "/home/musicofhel/link-forge/.env.example": 6,
+      "/home/musicofhel/link-forge/.env": 6
+    },
+    "potential_false_negatives": []
+  }
+}

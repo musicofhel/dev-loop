@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 553.804 405.4" width="553.804" height="405.4" style="--bg:#0d1117;--fg:#e6edf3;--line:#8b949e;--accent:#58a6ff;--muted:#8b949e;--surface:#161b22;--border:#30363d;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="HOOK" data-to="ENGINE" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="271.71500000000003,93.80000000000001 271.71500000000003,141.8" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ENGINE" data-to="DENY" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="271.71500000000003,178.70000000000002 271.71500000000003,199.70000000000002 105.435,199.70000000000002 105.435,220.70000000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ENGINE" data-to="OPS" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="271.71500000000003,178.70000000000002 271.71500000000003,199.70000000000002 271.71500000000003,199.70000000000002 271.71500000000003,220.70000000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="ENGINE" data-to="SEC" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="271.71500000000003,178.70000000000002 271.71500000000003,199.70000000000002 443.18199999999996,199.70000000000002 443.18199999999996,220.70000000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="DENY" data-to="BLOCK" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="105.435,274.5 105.435,298.5 98.025,298.5 98.025,322.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="DENY" data-to="ALLOW" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="105.435,274.5 105.435,298.5 271.71500000000003,298.5 271.71500000000003,322.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="OPS" data-to="BLOCK" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="271.71500000000003,274.5 271.71500000000003,298.5 98.025,298.5 98.025,322.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="OPS" data-to="WARN" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="271.71500000000003,274.5 271.71500000000003,298.5 453.4325,298.5 453.4325,322.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="OPS" data-to="ALLOW" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="271.71500000000003,274.5 271.71500000000003,298.5 271.71500000000003,298.5 271.71500000000003,322.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="SEC" data-to="WARN" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="443.18199999999996,274.5 443.18199999999996,298.5 453.4325,298.5 453.4325,322.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="SEC" data-to="ALLOW" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="443.18199999999996,274.5 443.18199999999996,298.5 271.71500000000003,298.5 271.71500000000003,322.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="node" data-id="HOOK" data-label="Hook
+(PreToolUse / PostToolUse)" data-shape="rectangle">
+  <rect x="168.1185" y="40" width="207.19299999999998" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="271.71500000000003" y="66.9" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="271.71500000000003" dy="-3.9000000000000012">Hook</tspan><tspan x="271.71500000000003" dy="16.900000000000002">(PreToolUse / PostToolUse)</tspan></text>
+</g>
+<g class="node" data-id="ENGINE" data-label="Check Engine" data-shape="rectangle">
+  <rect x="209.61450000000002" y="141.8" width="124.20099999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="271.71500000000003" y="160.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Check Engine</text>
+</g>
+<g class="node" data-id="DENY" data-label="Deny List
+15 glob patterns" data-shape="rectangle">
+  <rect x="40" y="220.70000000000002" width="130.87" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="105.435" y="247.60000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="105.435" dy="-3.9000000000000012">Deny List</tspan><tspan x="105.435" dy="16.900000000000002">15 glob patterns</tspan></text>
+</g>
+<g class="node" data-id="OPS" data-label="Dangerous Ops
+25 regex patterns" data-shape="rectangle">
+  <rect x="198.87" y="220.70000000000002" width="145.69" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="271.71500000000003" y="247.60000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="271.71500000000003" dy="-3.9000000000000012">Dangerous Ops</tspan><tspan x="271.71500000000003" dy="16.900000000000002">25 regex patterns</tspan></text>
+</g>
+<g class="node" data-id="SEC" data-label="Secret Scanner
+15 regex patterns" data-shape="rectangle">
+  <rect x="372.55999999999995" y="220.70000000000002" width="141.244" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="443.18199999999996" y="247.60000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="443.18199999999996" dy="-3.9000000000000012">Secret Scanner</tspan><tspan x="443.18199999999996" dy="16.900000000000002">15 regex patterns</tspan></text>
+</g>
+<g class="node" data-id="ALLOW" data-label="ALLOW" data-shape="rectangle">
+  <rect x="227.3985" y="322.5" width="88.633" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="271.71500000000003" y="340.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">ALLOW</text>
+</g>
+<g class="node" data-id="BLOCK" data-label="BLOCK" data-shape="rectangle">
+  <rect x="54.82" y="322.5" width="86.41" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="98.025" y="340.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">BLOCK</text>
+</g>
+<g class="node" data-id="WARN" data-label="WARN" data-shape="rectangle">
+  <rect x="413.562" y="322.5" width="79.74100000000001" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="453.4325" y="340.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">WARN</text>
+</g>
+</svg>

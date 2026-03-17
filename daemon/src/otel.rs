@@ -6,9 +6,9 @@ use crate::config::ObservabilityConfig;
 use crate::session::SessionInfo;
 use base64::Engine;
 use serde_json::json;
-use std::io::Write;
-use std::net::TcpStream;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Convert a chrono DateTime to nanoseconds since epoch.
 fn datetime_to_nanos(dt: &chrono::DateTime<chrono::Utc>) -> u64 {
@@ -131,33 +131,65 @@ pub fn build_otlp_json(service_name: &str, spans: Vec<serde_json::Value>) -> ser
 
 /// Export spans to OpenObserve via OTLP/HTTP JSON.
 ///
-/// Fire-and-forget: logs errors but never panics.
-pub fn export_spans(config: &ObservabilityConfig, spans: Vec<serde_json::Value>) {
+/// Retries up to 3 times with exponential backoff (1s, 2s, 4s).
+/// Returns Ok(()) on success, Err with details on final failure.
+pub fn export_spans(
+    config: &ObservabilityConfig,
+    spans: Vec<serde_json::Value>,
+) -> Result<(), String> {
     if spans.is_empty() {
-        return;
+        return Ok(());
     }
 
     let body = build_otlp_json(&config.service_name, spans);
-    let body_str = match serde_json::to_string(&body) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!("Failed to serialize OTLP JSON: {e}");
-            return;
-        }
-    };
+    let body_str = serde_json::to_string(&body)
+        .map_err(|e| format!("serialize OTLP JSON: {e}"))?;
 
     let url = format!(
         "{}/api/{}/v1/traces",
         config.openobserve_url, config.openobserve_org
     );
 
-    if let Err(e) = post_json(&url, &config.openobserve_user, &config.openobserve_password, &body_str) {
-        tracing::warn!("Failed to export spans to OpenObserve: {e}");
+    let backoff_secs = [1u64, 2, 4];
+    let mut last_err = String::new();
+
+    for (attempt, delay_s) in backoff_secs.iter().enumerate() {
+        match post_json(
+            &url,
+            &config.openobserve_user,
+            &config.openobserve_password,
+            &body_str,
+        ) {
+            Ok(status) => {
+                if attempt > 0 {
+                    tracing::info!(
+                        "OTel export succeeded on attempt {} (HTTP {status})",
+                        attempt + 1
+                    );
+                }
+                return Ok(());
+            }
+            Err(e) => {
+                last_err = e;
+                tracing::warn!(
+                    "OTel export attempt {}/{}: {last_err}",
+                    attempt + 1,
+                    backoff_secs.len()
+                );
+                std::thread::sleep(Duration::from_secs(*delay_s));
+            }
+        }
     }
+
+    Err(format!(
+        "OTel export failed after {} attempts: {last_err}",
+        backoff_secs.len()
+    ))
 }
 
-/// POST JSON to an HTTP URL. Supports Basic auth if user is non-empty.
-fn post_json(url: &str, user: &str, password: &str, body: &str) -> Result<(), String> {
+/// POST JSON to an HTTP URL with timeouts and response status checking.
+/// Returns the HTTP status code on success (2xx), or an error message.
+fn post_json(url: &str, user: &str, password: &str, body: &str) -> Result<u16, String> {
     let url_stripped = url
         .strip_prefix("http://")
         .ok_or_else(|| format!("only http:// supported, got: {url}"))?;
@@ -175,11 +207,22 @@ fn post_json(url: &str, user: &str, password: &str, body: &str) -> Result<(), St
         String::new()
     };
 
-    let mut stream = TcpStream::connect(host_port)
+    // Resolve address and connect with timeout
+    let addr = host_port
+        .to_socket_addrs()
+        .map_err(|e| format!("resolve {host_port}: {e}"))?
+        .next()
+        .ok_or_else(|| format!("no address for {host_port}"))?;
+
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))
         .map_err(|e| format!("connect to {host_port}: {e}"))?;
+
     stream
-        .set_write_timeout(Some(std::time::Duration::from_secs(5)))
-        .map_err(|e| format!("set timeout: {e}"))?;
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| format!("set write timeout: {e}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .map_err(|e| format!("set read timeout: {e}"))?;
 
     let request = format!(
         "POST {path} HTTP/1.1\r\n\
@@ -197,7 +240,32 @@ fn post_json(url: &str, user: &str, password: &str, body: &str) -> Result<(), St
         .write_all(request.as_bytes())
         .map_err(|e| format!("write: {e}"))?;
 
-    Ok(())
+    // Read response to get HTTP status code
+    let mut response_buf = [0u8; 512];
+    let n = stream
+        .read(&mut response_buf)
+        .map_err(|e| format!("read response: {e}"))?;
+    let response = String::from_utf8_lossy(&response_buf[..n]);
+
+    // Parse "HTTP/1.1 200 OK" → 200
+    let status_code = response
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+
+    if (200..300).contains(&status_code) {
+        Ok(status_code)
+    } else if status_code == 401 {
+        Err(format!(
+            "401 Unauthorized — check OTel credentials (user: {user})"
+        ))
+    } else if status_code == 0 {
+        Err("no valid HTTP response received".into())
+    } else {
+        Err(format!("HTTP {status_code} from {url}"))
+    }
 }
 
 fn attr_str(key: &str, value: &str) -> serde_json::Value {
@@ -333,5 +401,44 @@ mod tests {
         let i = attr_int("key2", 42);
         assert_eq!(i["key"], "key2");
         assert_eq!(i["value"]["intValue"], "42");
+    }
+
+    #[test]
+    fn export_spans_empty_is_ok() {
+        let config = ObservabilityConfig::default();
+        let result = export_spans(&config, vec![]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn export_spans_connection_refused() {
+        let config = ObservabilityConfig {
+            openobserve_url: "http://127.0.0.1:19999".into(), // not listening
+            ..Default::default()
+        };
+        let spans = vec![json!({
+            "traceId": "a".repeat(32),
+            "spanId": "b".repeat(16),
+            "name": "test",
+            "kind": 1,
+            "startTimeUnixNano": "1000",
+            "endTimeUnixNano": "2000",
+            "attributes": [],
+            "status": { "code": 1 }
+        })];
+        let result = export_spans(&config, spans);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("connect") || err.contains("failed"),
+            "Error should mention connection: {err}"
+        );
+    }
+
+    #[test]
+    fn post_json_rejects_https() {
+        let result = post_json("https://example.com/traces", "", "", "{}");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("only http://"));
     }
 }

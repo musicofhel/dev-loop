@@ -1,0 +1,5 @@
+description: "SQL injection vulnerability in handler"
+expected_gates:
+  semgrep:
+    passed: false
+    reason_contains: "semgrep"

@@ -6,6 +6,7 @@ mod continuity;
 mod daemon;
 mod dashboard;
 mod event_log;
+mod feedback;
 mod hook;
 mod install;
 mod otel;
@@ -13,6 +14,7 @@ mod override_mgr;
 mod rules_md;
 mod server;
 mod session;
+mod shadow_report;
 mod sse;
 mod traces;
 mod transcript;
@@ -66,6 +68,68 @@ fn main() {
         } => continuity::record_outcome(&session_id, &outcome, notes.as_deref()),
         Command::ConfigLint { dir } => config::lint_and_print(dir.as_deref()),
         Command::Reload => daemon::reload(),
+        Command::Checkpoint { dir, json } => run_checkpoint_cli(dir.as_deref(), json),
+        Command::Feedback {
+            event_id,
+            label,
+            notes,
+            list,
+            stats,
+            last,
+        } => {
+            if stats {
+                feedback::show_stats();
+            } else if list {
+                feedback::list_unlabeled(last);
+            } else {
+                match (event_id, label) {
+                    (Some(eid), Some(lbl)) => {
+                        feedback::annotate(&eid, &lbl, notes.as_deref())
+                    }
+                    _ => {
+                        eprintln!("Usage: dl feedback <event-id> <label> [--notes \"...\"]");
+                        eprintln!("       dl feedback --list [--last N]");
+                        eprintln!("       dl feedback --stats");
+                        eprintln!("\nLabels: correct, false-positive, missed");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+        Command::ShadowReport { last, csv } => shadow_report::report(last, csv),
+    }
+}
+
+/// Offline checkpoint — runs Tier 2 gate suite without a daemon.
+fn run_checkpoint_cli(dir: Option<&str>, json_output: bool) {
+    let cwd = dir
+        .map(String::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap().to_string_lossy().to_string());
+
+    let merged = config::load_merged(Some(&cwd));
+    let result = checkpoint::run_checkpoint(&cwd, &merged.checkpoint);
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&result).unwrap());
+    } else {
+        let status = if result.passed { "PASSED" } else { "FAILED" };
+        println!("Checkpoint: {status} ({}/{} gates passed, {}ms)",
+            result.gates_passed, result.gates_run, result.duration_ms);
+        for gr in &result.gate_results {
+            let icon = if gr.passed { "✓" } else { "✗" };
+            println!("  {icon} {} ({}ms){}", gr.gate, gr.duration_ms,
+                gr.reason.as_ref().map(|r| format!(" — {r}")).unwrap_or_default());
+            for f in &gr.findings {
+                println!("    {f}");
+            }
+        }
+        if let Some(trailer) = &result.trailer {
+            println!("\n{trailer}");
+        }
+    }
+
+    if !result.passed {
+        std::process::exit(1);
     }
 }
 

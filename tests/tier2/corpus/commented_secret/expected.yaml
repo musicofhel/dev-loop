@@ -1,0 +1,5 @@
+description: "Secret in a comment - should pass (many scanners catch this, but it is debatable)"
+note: "This is a soft expectation - some scanners flag comments, which is arguably correct"
+expected_gates:
+  secrets:
+    passed: true

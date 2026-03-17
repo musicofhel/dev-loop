@@ -1,0 +1,54 @@
+{
+  "title": "Ambient Layer Calibration",
+  "description": "Calibration metrics: shadow verdicts, replay precision/recall, tier2 pass rate, feedback labels",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Shadow Verdicts (7d)",
+      "type": "metric",
+      "query": "SELECT COUNT(*) as total FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'shadow_verdict' AND _timestamp >= NOW() - INTERVAL '7 DAYS'"
+    },
+    {
+      "id": 2,
+      "title": "Shadow Block Rate",
+      "type": "metric",
+      "query": "SELECT ROUND(100.0 * SUM(CASE WHEN verdict = 'block' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) as block_pct FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'shadow_verdict' AND _timestamp >= NOW() - INTERVAL '7 DAYS'"
+    },
+    {
+      "id": 3,
+      "title": "Check Verdicts by Type",
+      "type": "bar",
+      "query": "SELECT check_type, verdict, COUNT(*) as count FROM default WHERE service_name = 'dev-loop-ambient' AND span_name IN ('check', 'shadow_verdict') AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY check_type, verdict ORDER BY count DESC"
+    },
+    {
+      "id": 4,
+      "title": "Verdict Distribution Over Time",
+      "type": "line",
+      "query": "SELECT DATE_TRUNC('hour', _timestamp) as hour, verdict, COUNT(*) as count FROM default WHERE service_name = 'dev-loop-ambient' AND span_name IN ('check', 'shadow_verdict') AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY hour, verdict ORDER BY hour"
+    },
+    {
+      "id": 5,
+      "title": "Top Blocked Patterns",
+      "type": "table",
+      "query": "SELECT reason, COUNT(*) as count FROM default WHERE service_name = 'dev-loop-ambient' AND span_name IN ('check', 'shadow_verdict') AND verdict = 'block' AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY reason ORDER BY count DESC LIMIT 20"
+    },
+    {
+      "id": 6,
+      "title": "Replay Block Rate Trend",
+      "type": "line",
+      "query": "SELECT DATE_TRUNC('day', _timestamp) as day, ROUND(100.0 * SUM(CASE WHEN verdict = 'block' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) as block_pct FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'replay_verdict' AND _timestamp >= NOW() - INTERVAL '30 DAYS' GROUP BY day ORDER BY day"
+    },
+    {
+      "id": 7,
+      "title": "Sessions by Outcome",
+      "type": "pie",
+      "query": "SELECT COALESCE(session_outcome, 'unknown') as outcome, COUNT(DISTINCT trace_id) as sessions FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'session' AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY outcome"
+    },
+    {
+      "id": 8,
+      "title": "Feedback Labels (cumulative)",
+      "type": "metric",
+      "query": "SELECT COUNT(*) as total_labels FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'feedback' AND _timestamp >= NOW() - INTERVAL '30 DAYS'"
+    }
+  ]
+}

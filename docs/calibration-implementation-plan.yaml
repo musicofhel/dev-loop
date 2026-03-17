@@ -1,0 +1,730 @@
+# =============================================================================
+# dev-loop Ambient Layer — Calibration Implementation Plan
+# =============================================================================
+# Date: 2026-03-16
+# Status: READY
+# Scope: Integrate external tools, build test/calibration infrastructure
+# Depends on: docs/testing-calibration-plan.yaml (the what)
+# This file: the how, with specific tool integrations
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# STEP 1: Semgrep AI Best Practices Rules
+# Effort: ~30 min
+# Risk: Low (additive, existing gate)
+# -----------------------------------------------------------------------------
+step_1:
+  name: "Add semgrep/ai-best-practices to checkpoint gate"
+  rationale: >
+    58 rules covering Claude Code hook security, MCP server vulnerabilities,
+    hardcoded AI API keys, prompt injection, and agent execution safety.
+    9 rules specifically for hook security (path traversal, stdin injection,
+    unconditional allow, DNS exfil). Directly applicable to our codebase.
+
+  substeps:
+    - id: s1.1
+      name: "Clone rules repo"
+      commands:
+        - "git clone https://github.com/semgrep/ai-best-practices.git ~/.local/share/semgrep-ai-rules"
+      notes: >
+        Clone to a stable location outside the repo. The rules have no
+        registry shorthand (no --config p/ai-best-practices). Must point
+        --config at the rules/ directory.
+
+    - id: s1.2
+      name: "Update checkpoint semgrep command"
+      file: "daemon/src/checkpoint.rs"
+      current_command: 'semgrep --config auto --json --quiet --no-git-ignore [files...]'
+      new_command: 'semgrep --config auto --config ~/.local/share/semgrep-ai-rules/rules/ --json --quiet --no-git-ignore [files...]'
+      change: |
+        Line ~249: Add second --config flag pointing to ai-best-practices rules.
+        Semgrep supports multiple --config flags — they're additive.
+        ```rust
+        let ai_rules = dirs::home_dir()
+            .map(|h| h.join(".local/share/semgrep-ai-rules/rules"))
+            .filter(|p| p.exists());
+
+        let mut cmd = Command::new("semgrep");
+        cmd.args(["--config", "auto", "--json", "--quiet", "--no-git-ignore"]);
+        if let Some(ai_path) = ai_rules {
+            cmd.args(["--config", &ai_path.to_string_lossy()]);
+        }
+        ```
+      fallback: >
+        If rules dir doesn't exist, silently use --config auto only.
+        No fail-open change needed — just the existing behavior.
+
+    - id: s1.3
+      name: "Add config option for extra semgrep configs"
+      file: "daemon/src/config.rs"
+      change: |
+        Add to CheckpointConfig:
+        ```rust
+        #[serde(default)]
+        pub semgrep_extra_configs: Vec<String>,
+        ```
+        Default: ["~/.local/share/semgrep-ai-rules/rules/"]
+        Thread through to checkpoint.rs semgrep command builder.
+        Users can add their own custom rule directories.
+
+    - id: s1.4
+      name: "Run semgrep on our own codebase with new rules"
+      commands:
+        - "semgrep --config auto --config ~/.local/share/semgrep-ai-rules/rules/ daemon/src/ scripts/"
+      notes: >
+        Check for findings in our own hooks and scripts. The hooks-*
+        rules may flag patterns in our hook.rs (it reads stdin JSON).
+        Fix or nosemgrep any legitimate findings.
+
+    - id: s1.5
+      name: "Add update mechanism"
+      file: "justfile"
+      change: |
+        Add recipe:
+        ```
+        semgrep-rules-update:
+            cd ~/.local/share/semgrep-ai-rules && git pull --ff-only
+        ```
+        Add to `just stack-import` or create a `just update-tools` recipe.
+
+  tests:
+    - "semgrep --validate --config ~/.local/share/semgrep-ai-rules/rules/"
+    - "semgrep --test ~/.local/share/semgrep-ai-rules/rules/"  # runs their own tests
+    - "cargo test -- checkpoint"  # existing checkpoint tests still pass
+
+  key_rules_for_us:
+    hooks_security:
+      - "hooks-no-input-validation: our hook.rs reads stdin JSON — verify we handle parse errors"
+      - "hooks-path-traversal: our hooks pass file_path from stdin to checks — verify sanitization"
+      - "hooks-unconditional-allow: verify our hooks have conditional logic, not blanket allow"
+      - "hooks-wget-pipe-bash: our dangerous_ops check catches this, but semgrep adds defense in depth"
+    mcp_security:
+      - "mcp-command-injection: if we ever write MCP tools"
+      - "mcp-hardcoded-config-secret: scans our .mcp.json files"
+    agent_config:
+      - "ai-config-hidden-unicode: scans CLAUDE.md, AGENTS.md for invisible chars"
+      - "claude-settings-bypass-permissions: scans settings.json for unsafe perms"
+      - "claude-settings-env-url-override: detects API URL redirects"
+
+# -----------------------------------------------------------------------------
+# STEP 2: BetterLeaks Evaluation + Migration
+# Effort: ~1 hour
+# Risk: Medium (replacing existing tool in critical gate)
+# -----------------------------------------------------------------------------
+step_2:
+  name: "Evaluate betterleaks as gitleaks replacement"
+  rationale: >
+    Same team as gitleaks, backward compatible, but adds: CEL-based live
+    secret validation, BPE token efficiency filter (reduces FPs vs entropy),
+    composite rules with proximity constraints, recursive encoding detection.
+    The CEL validation alone justifies the switch: "this IS a live key" vs
+    "this LOOKS like a key."
+
+  substeps:
+    - id: s2.1
+      name: "Install betterleaks"
+      commands:
+        - "brew install betterleaks/tap/betterleaks"
+        # Fallback if brew unavailable:
+        - "git clone https://github.com/betterleaks/betterleaks.git /tmp/betterleaks && cd /tmp/betterleaks && make betterleaks && cp betterleaks ~/.local/bin/"
+      verify: "betterleaks version"
+
+    - id: s2.2
+      name: "Parallel comparison run"
+      commands:
+        - "cd ~/dev-loop && git diff HEAD~5..HEAD | gitleaks detect --pipe --report-format json 2>/dev/null"
+        - "cd ~/dev-loop && git diff HEAD~5..HEAD | betterleaks stdin -f json 2>/dev/null"
+      notes: >
+        Run both tools on same diff, compare findings. Look for:
+        - False positives gitleaks catches that betterleaks filters out
+        - Findings betterleaks catches that gitleaks misses
+        - Output format differences
+
+    - id: s2.3
+      name: "Run on secret pattern corpus"
+      notes: >
+        Use the test content from daemon/src/check/secrets.rs test cases.
+        Create a temp file with all test patterns, scan with both tools.
+        Compare detection rates.
+
+    - id: s2.4
+      name: "Update checkpoint gate (if evaluation passes)"
+      file: "daemon/src/checkpoint.rs"
+      current_command: 'git diff --cached | gitleaks detect --pipe --report-format json --no-banner'
+      new_command: 'git diff --cached | betterleaks stdin -f json --no-banner'
+      change: |
+        Line ~383-389: Replace gitleaks spawn with betterleaks:
+        ```rust
+        let mut child = Command::new("betterleaks")
+            .args(["stdin", "-f", "json", "--no-banner"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(cwd)
+            .spawn()?;
+        ```
+
+        Also update is_tool_available check (line ~342):
+        ```rust
+        if !is_tool_available("betterleaks") {
+            // Fallback to gitleaks if betterleaks not installed
+            if !is_tool_available("gitleaks") {
+                return GateResult { passed: true, reason: "neither betterleaks nor gitleaks installed" };
+            }
+            return run_secrets_gate_gitleaks(cwd, staged_files);
+        }
+        ```
+
+      parsing_changes: |
+        BetterLeaks JSON output format is the same as gitleaks:
+        ```json
+        [{"File": "...", "StartLine": N, "RuleID": "...", "Description": "..."}]
+        ```
+        No parsing changes needed — backward compatible.
+
+    - id: s2.5
+      name: "Add betterleaks config"
+      file: ".betterleaks.toml"
+      content: |
+        [extend]
+        useDefault = true
+
+        # Enable token efficiency on all rules for better FP reduction
+        # CEL validation is experimental — enable when stable
+        # [experiments]
+        # validation = true
+
+    - id: s2.6
+      name: "Keep gitleaks as fallback"
+      notes: >
+        Don't remove gitleaks. checkpoint.rs tries betterleaks first,
+        falls back to gitleaks if not installed. Config lint warns if
+        neither is installed.
+
+  tests:
+    - "betterleaks stdin < /dev/null"  # no crash on empty input
+    - "echo 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij' | betterleaks stdin -f json"  # catches GitHub PAT
+    - "echo 'normal code here' | betterleaks stdin -f json"  # no false positive
+    - "cargo test -- secrets_gate"  # existing gate tests pass with new binary
+
+# -----------------------------------------------------------------------------
+# STEP 3: rgx Installation (Quick)
+# Effort: ~5 min
+# Risk: None (dev tool only)
+# -----------------------------------------------------------------------------
+step_3:
+  name: "Install rgx for pattern debugging"
+  commands:
+    - "cargo install rgx-cli"
+  usage: |
+    # Interactive mode — paste patterns from secrets.rs/dangerous_ops.rs
+    rgx
+
+    # Batch mode — test a specific pattern against input
+    echo "rm -rf /home/user" | rgx -p '(?i)\brm\s+(-[a-z]*)?-r'
+
+    # Test all 15 secret patterns against a corpus file
+    cat test_secrets.txt | rgx -p '(?i)(api[_-]?key|apikey)\s*[:=]\s*['"'"'"'"'"']?[a-zA-Z0-9_\-]{20,}'
+  notes: >
+    Use when tuning patterns after the fuzzer (Step 5) or replay harness
+    finds edge cases. The "plain English explanation" feature is useful
+    for documenting what complex patterns actually match.
+
+# -----------------------------------------------------------------------------
+# STEP 4: Hook Protocol Conformance Tests (pyrefly pattern)
+# Effort: ~2 hours
+# Risk: Low (test-only, no production changes)
+# -----------------------------------------------------------------------------
+step_4:
+  name: "Hook conformance test suite using annotated test format"
+  rationale: >
+    Steal the pyrefly/semgrep test annotation pattern: each test case is
+    a JSON line with an # expect: comment declaring the expected verdict.
+    Run dl hook on each, compare exit code to annotation. Report
+    conformance percentage.
+
+  substeps:
+    - id: s4.1
+      name: "Create conformance test corpus"
+      file: "tests/conformance/pre_tool_use.jsonl"
+      format: |
+        Each line: JSON blob matching Claude Code's hook stdin format.
+        Preceded by comment with expected verdict.
+
+        Example:
+        ```
+        # expect: block — deny list match (.env file)
+        {"tool": {"name": "Write", "input": {"file_path": "/home/user/project/.env", "content": "DB_URL=..."}}, "session_id": "test-001"}
+
+        # expect: allow — safe Rust source file
+        {"tool": {"name": "Write", "input": {"file_path": "/home/user/project/src/main.rs", "content": "fn main() {}"}}, "session_id": "test-002"}
+
+        # expect: block — dangerous rm -rf /
+        {"tool": {"name": "Bash", "input": {"command": "rm -rf /"}}, "session_id": "test-003"}
+
+        # expect: allow — safe cargo build
+        {"tool": {"name": "Bash", "input": {"command": "cargo build --release"}}, "session_id": "test-004"}
+
+        # expect: warn — docker system prune (dangerous but not blocked)
+        {"tool": {"name": "Bash", "input": {"command": "docker system prune -af"}}, "session_id": "test-005"}
+
+        # expect: block — deny list match (private key)
+        {"tool": {"name": "Write", "input": {"file_path": "/home/user/.ssh/id_rsa", "content": "..."}}, "session_id": "test-006"}
+
+        # expect: allow — normal git status
+        {"tool": {"name": "Bash", "input": {"command": "git status"}}, "session_id": "test-007"}
+        ```
+
+      corpus_categories:
+        deny_list_blocks:
+          count: 15  # one per builtin pattern
+          description: "Each builtin deny list pattern has a test case that triggers it"
+        deny_list_allows:
+          count: 15  # safe paths that could be confused
+          description: "Files that look dangerous but aren't (e.g., docs/secrets-guide.md)"
+        dangerous_ops_blocks:
+          count: 25  # one per builtin pattern
+          description: "Each dangerous ops pattern has a triggering command"
+        dangerous_ops_allows:
+          count: 25  # safe commands that look dangerous
+          description: "Commands that look risky but are safe (e.g., 'git push origin feature')"
+        dangerous_ops_warns:
+          count: 10  # warn-severity patterns
+          description: "Commands that should warn but not block"
+        secrets_blocks:
+          count: 15  # one per builtin pattern
+          description: "Each secret pattern has content that triggers it"
+        secrets_allows:
+          count: 15  # content that looks like secrets but isn't
+          description: "Base64 strings, UUIDs, hash digests, placeholder values"
+        config_overrides:
+          count: 10  # allow_patterns, remove_patterns
+          description: "Verify config overrides work (allow_patterns bypass, remove_patterns disable)"
+        total: "~130 test cases"
+
+    - id: s4.2
+      name: "Create conformance test runner"
+      file: "scripts/conformance/run_conformance.py"
+      logic: |
+        1. Read .jsonl file, parse comments + JSON lines
+        2. For each test case:
+           a. Write JSON to temp file
+           b. Run: `dl hook pre-tool-use < temp_file`
+           c. Capture exit code: 0=allow, 2=block
+           d. Parse stdout JSON for verdict details (warn vs allow)
+           e. Compare to expected verdict from comment
+        3. Report:
+           - Total: N tests
+           - Pass: N (exit code matches expected)
+           - Fail: N (mismatches)
+           - Conformance: N/N (percentage)
+           - Per-category breakdown
+           - Detailed mismatch report (expected X, got Y, test case JSON)
+
+      output_format: |
+        ```
+        Hook Protocol Conformance Report
+        ================================
+        Total:  130 tests
+        Pass:   127 (97.7%)
+        Fail:   3 (2.3%)
+
+        By Category:
+          deny_list_blocks:    15/15  (100.0%)
+          deny_list_allows:    14/15  (93.3%)   ← 1 false positive
+          dangerous_ops_blocks: 25/25 (100.0%)
+          dangerous_ops_allows: 24/25 (96.0%)   ← 1 false positive
+          dangerous_ops_warns:  10/10 (100.0%)
+          secrets_blocks:       15/15 (100.0%)
+          secrets_allows:       14/15 (93.3%)   ← 1 false positive
+          config_overrides:     10/10 (100.0%)
+
+        Failures:
+          [FAIL] test-012: expected=allow, got=block
+            Input: {"tool": "Write", "file_path": "docs/secrets-guide.md", ...}
+            Pattern matched: *secret* (deny_list)
+            Note: docs/ path should be allowed — add to allow_patterns?
+        ```
+
+    - id: s4.3
+      name: "Create conformance test corpus for PostToolUse"
+      file: "tests/conformance/post_tool_use.jsonl"
+      notes: >
+        Similar format but tests secret detection on file content.
+        Tests the comment-skipping, placeholder-skipping, and file
+        allowlist logic.
+
+    - id: s4.4
+      name: "Add to justfile"
+      change: |
+        ```
+        conformance:
+            uv run python scripts/conformance/run_conformance.py tests/conformance/pre_tool_use.jsonl
+            uv run python scripts/conformance/run_conformance.py tests/conformance/post_tool_use.jsonl
+        ```
+
+    - id: s4.5
+      name: "Baseline conformance run"
+      notes: >
+        Run the suite, save results as tests/conformance/baseline-2026-03.json.
+        Any failures are either bugs in the check engine (fix them) or
+        bugs in the test corpus (fix the test). Target: 100% conformance
+        on the initial corpus, then add edge cases.
+
+# -----------------------------------------------------------------------------
+# STEP 5: Check Engine Fuzzer (proptest)
+# Effort: ~2 hours
+# Risk: Low (test-only)
+# -----------------------------------------------------------------------------
+step_5:
+  name: "Property-based fuzzer for check engine patterns"
+  rationale: >
+    55 hand-written regex patterns (15 deny, 25 dangerous ops, 15 secrets)
+    have never been fuzzed. proptest generates random inputs and asserts
+    invariants: no panic, deterministic output, allow_patterns always
+    override blocks, remove_patterns always subtract.
+
+  substeps:
+    - id: s5.1
+      name: "Add proptest dependency"
+      file: "daemon/Cargo.toml"
+      change: |
+        [dev-dependencies]
+        proptest = "1"
+
+    - id: s5.2
+      name: "Deny list fuzzer"
+      file: "daemon/src/check/deny_list.rs"
+      tests: |
+        ```rust
+        #[cfg(test)]
+        mod proptests {
+            use super::*;
+            use proptest::prelude::*;
+
+            proptest! {
+                #[test]
+                fn never_panics(path in "\\PC{1,500}") {
+                    let dl = DenyList::default_patterns();
+                    let _ = dl.check(&path);
+                }
+
+                #[test]
+                fn deterministic(path in "\\PC{1,200}") {
+                    let dl = DenyList::default_patterns();
+                    let r1 = dl.check(&path);
+                    let r2 = dl.check(&path);
+                    prop_assert_eq!(r1.is_some(), r2.is_some());
+                }
+
+                #[test]
+                fn allow_always_overrides(
+                    path in "\\PC{1,200}",
+                    allow in prop::collection::vec("[a-z]{3,20}", 1..5)
+                ) {
+                    let dl = DenyList::from_config(&[], &[], &allow);
+                    if allow.iter().any(|a| path.contains(a)) {
+                        // If path contains any allow pattern, should not be denied
+                        // (only true if allow_patterns bypass deny check)
+                    }
+                    let _ = dl.check(&path);  // at minimum, no panic
+                }
+            }
+        }
+        ```
+
+    - id: s5.3
+      name: "Dangerous ops fuzzer"
+      file: "daemon/src/check/dangerous_ops.rs"
+      tests: |
+        ```rust
+        proptest! {
+            #[test]
+            fn never_panics(cmd in "\\PC{1,1000}") {
+                let ops = DangerousOps::default_patterns();
+                let _ = ops.check(&cmd);
+            }
+
+            #[test]
+            fn deterministic(cmd in "\\PC{1,500}") {
+                let ops = DangerousOps::default_patterns();
+                let r1 = ops.check(&cmd);
+                let r2 = ops.check(&cmd);
+                prop_assert_eq!(r1.is_some(), r2.is_some());
+            }
+
+            #[test]
+            fn no_catastrophic_backtracking(cmd in "[a-zA-Z0-9 |;&]{1,10000}") {
+                // Must complete in <100ms even on long input
+                let ops = DangerousOps::default_patterns();
+                let start = std::time::Instant::now();
+                let _ = ops.check(&cmd);
+                prop_assert!(start.elapsed().as_millis() < 100);
+            }
+        }
+        ```
+
+    - id: s5.4
+      name: "Secrets fuzzer"
+      file: "daemon/src/check/secrets.rs"
+      tests: |
+        ```rust
+        proptest! {
+            #[test]
+            fn never_panics(content in "\\PC{1,5000}") {
+                let scanner = SecretScanner::default_patterns();
+                let _ = scanner.check(&content);
+            }
+
+            #[test]
+            fn comments_never_match(
+                comment_prefix in prop_oneof!["# ", "// ", "-- "],
+                rest in "[a-zA-Z0-9_=:'\"-]{1,200}"
+            ) {
+                let line = format!("{}{}", comment_prefix, rest);
+                let scanner = SecretScanner::default_patterns();
+                let matches = scanner.check(&line);
+                // Comments should be skipped (except -- with -----)
+                if !comment_prefix.starts_with("--") {
+                    prop_assert!(matches.is_empty(),
+                        "Comment line matched: {}", line);
+                }
+            }
+
+            #[test]
+            fn placeholders_never_match(
+                placeholder in prop_oneof![
+                    "your-[a-z]{5,20}",
+                    "YOUR_[A-Z]{5,20}",
+                    "[a-z]{5,20}_example_[a-z]{5,20}",
+                    "xxx[a-zA-Z0-9]{5,20}"
+                ]
+            ) {
+                let line = format!("API_KEY={}", placeholder);
+                let scanner = SecretScanner::default_patterns();
+                let matches = scanner.check(&line);
+                prop_assert!(matches.is_empty(),
+                    "Placeholder matched: {}", line);
+            }
+        }
+        ```
+
+    - id: s5.5
+      name: "Run fuzzer, capture failures"
+      commands:
+        - "cargo test --manifest-path daemon/Cargo.toml proptests -- --nocapture"
+      notes: >
+        proptest defaults to 256 iterations per test. Set PROPTEST_CASES=10000
+        for thorough runs. Any failure produces a minimal reproducing case
+        saved to proptest-regressions/ — add to .gitignore or commit as
+        regression tests.
+
+# -----------------------------------------------------------------------------
+# STEP 6: Replay Harness (promptfoo-inspired)
+# Effort: ~3 hours
+# Risk: Low (analysis tool, no production changes)
+# -----------------------------------------------------------------------------
+step_6:
+  name: "Session replay harness with declarative test cases"
+  rationale: >
+    937K lines of real Claude Code sessions exist. Extract tool calls,
+    replay through check engine, measure what would have been blocked.
+    Use promptfoo's declarative YAML assertion pattern for the test
+    case format.
+
+  substeps:
+    - id: s6.1
+      name: "Session JSONL parser"
+      file: "scripts/replay/parse_sessions.py"
+      logic: |
+        Read Claude Code JSONL format:
+        - Each line is a JSON object with type, content, etc.
+        - Tool use events have: tool_name, tool_input
+        - Filter to: Write, Edit, Bash (the tools hooks intercept)
+        - Extract: session_id (from filename), tool_name, tool_input, timestamp
+        - Output NDJSON: one line per tool call
+
+        Claude Code JSONL format (from ~/.claude/projects/):
+        - Lines with "type": "tool_use" contain tool invocations
+        - tool_input varies by tool:
+          - Write: {"file_path": "...", "content": "..."}
+          - Edit: {"file_path": "...", "old_string": "...", "new_string": "..."}
+          - Bash: {"command": "..."}
+
+    - id: s6.2
+      name: "Declarative test case format (promptfoo-inspired)"
+      file: "tests/replay/test_cases.yaml"
+      format: |
+        ```yaml
+        # Replay test cases — declarative assertions on check engine verdicts
+        description: "Check engine regression tests from real session data"
+
+        defaults:
+          session_id: "replay-test"
+          config_dir: null  # use default config
+
+        tests:
+          - name: "safe rust file write"
+            input:
+              tool: Write
+              file_path: "src/main.rs"
+              content: "fn main() { println!(\"hello\"); }"
+            assert:
+              verdict: allow
+
+          - name: "env file blocked by deny list"
+            input:
+              tool: Write
+              file_path: ".env.production"
+              content: "DATABASE_URL=postgres://..."
+            assert:
+              verdict: block
+              check_type: deny_list
+
+          - name: "safe git push to feature branch"
+            input:
+              tool: Bash
+              command: "git push origin feature/new-thing"
+            assert:
+              verdict: allow
+
+          - name: "force push blocked"
+            input:
+              tool: Bash
+              command: "git push --force origin main"
+            assert:
+              verdict: block
+              check_type: dangerous_ops
+
+          - name: "real API key in file content detected"
+            input:
+              tool: Write
+              file_path: "config.py"
+              content: 'OPENAI_KEY = "sk-proj-abc123def456ghi789jkl012mno345pqr678stu901vwx"'
+            assert:
+              verdict: warn  # PostToolUse secrets are warnings
+              check_type: secrets
+        ```
+
+    - id: s6.3
+      name: "Replay runner"
+      file: "scripts/replay/run_replay.py"
+      logic: |
+        Two modes:
+        1. YAML test cases (s6.2): read assertions, run through dl check, assert
+        2. Raw NDJSON (s6.1 output): run through dl check, report frequencies
+
+        For YAML mode:
+        - Read test_cases.yaml
+        - For each test: construct CheckRequest, call dl check --json
+        - Compare verdict to assertion
+        - Output: pass/fail per test, summary stats
+
+        For raw replay mode:
+        - Read NDJSON from parse_sessions.py
+        - Run each through dl check --json (or direct library call)
+        - Aggregate: total, blocked, warned, allowed
+        - Group by: check_type, pattern_matched, file_path
+        - Flag anomalies: files blocked >5 times (likely FP)
+
+    - id: s6.4
+      name: "Generate test cases from real sessions"
+      commands:
+        - "python scripts/replay/parse_sessions.py ~/.claude/projects/-home-musicofhel/*.jsonl > /tmp/replay_corpus.ndjson"
+        - "python scripts/replay/run_replay.py --raw /tmp/replay_corpus.ndjson > /tmp/replay_results.ndjson"
+        - "python scripts/replay/run_replay.py --summarize /tmp/replay_results.ndjson"
+      notes: >
+        The summary shows which patterns fire most often on real data.
+        High-frequency blocks on legitimate files → add to test_cases.yaml
+        as "assert: allow" (these are FPs to fix).
+        Zero-frequency patterns → consider if they're dead rules.
+
+    - id: s6.5
+      name: "Add to justfile"
+      change: |
+        ```
+        replay-test:
+            uv run python scripts/replay/run_replay.py --yaml tests/replay/test_cases.yaml
+        replay-full:
+            uv run python scripts/replay/parse_sessions.py ~/.claude/projects/-home-musicofhel/*.jsonl | \
+            uv run python scripts/replay/run_replay.py --raw --summarize
+        ```
+
+# -----------------------------------------------------------------------------
+# EXECUTION ORDER
+# -----------------------------------------------------------------------------
+execution_order:
+  - step: 1
+    name: "semgrep/ai-best-practices"
+    effort: "30 min"
+    changes_production: true
+    gate: "semgrep --test on rules passes, cargo test passes"
+
+  - step: 2
+    name: "betterleaks evaluation"
+    effort: "1 hour"
+    changes_production: "conditional — only if evaluation passes"
+    gate: "betterleaks catches same+more findings as gitleaks on test corpus"
+
+  - step: 3
+    name: "rgx installation"
+    effort: "5 min"
+    changes_production: false
+    gate: "rgx --version works"
+
+  - step: 4
+    name: "hook conformance tests"
+    effort: "2 hours"
+    changes_production: false
+    gate: "conformance suite runs, baseline established"
+
+  - step: 5
+    name: "check engine fuzzer"
+    effort: "2 hours"
+    changes_production: false
+    gate: "proptest runs 256+ iterations per test, no panics"
+
+  - step: 6
+    name: "replay harness"
+    effort: "3 hours"
+    changes_production: false
+    gate: "replay on real sessions produces frequency analysis"
+
+  total_effort: "~9 hours across 2-3 sessions"
+  parallelizable: "Steps 3-6 are independent of each other"
+
+# -----------------------------------------------------------------------------
+# DEPENDENCIES
+# -----------------------------------------------------------------------------
+dependencies:
+  step_1:
+    requires: ["semgrep >= 1.0"]
+    installs: ["semgrep/ai-best-practices rules (git clone)"]
+  step_2:
+    requires: ["go toolchain OR brew"]
+    installs: ["betterleaks binary"]
+    fallback: "keep gitleaks if betterleaks evaluation fails"
+  step_3:
+    requires: ["cargo"]
+    installs: ["rgx-cli"]
+  step_4:
+    requires: ["python 3.10+", "dl binary at ~/.local/bin/dl"]
+    installs: nothing
+  step_5:
+    requires: ["proptest crate (dev-dependency)"]
+    installs: nothing
+  step_6:
+    requires: ["python 3.10+", "dl binary at ~/.local/bin/dl"]
+    installs: nothing
+
+# -----------------------------------------------------------------------------
+# SUCCESS CRITERIA
+# -----------------------------------------------------------------------------
+success_criteria:
+  step_1: "semgrep gate now scans with 58 additional AI security rules"
+  step_2: "secrets gate uses betterleaks (or stays on gitleaks with documented reason)"
+  step_3: "rgx available for interactive pattern debugging"
+  step_4: "130+ conformance tests, baseline >= 95% pass rate"
+  step_5: "proptest finds zero panics, zero backtracking issues on 10K iterations"
+  step_6: "replay harness processes 937K lines, produces per-pattern frequency analysis"
+  overall: "check engine behavior is measured, documented, and regression-testable"

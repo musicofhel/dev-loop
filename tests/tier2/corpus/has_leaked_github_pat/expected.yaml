@@ -1,0 +1,6 @@
+description: "GitHub PAT leaked in config.py — gitleaks/betterleaks do not detect ghp_ tokens"
+known_gap: true
+note: "gitleaks v8.30 and betterleaks v1.1 do not have rules for ghp_ prefixed tokens"
+expected_gates:
+  secrets:
+    passed: true

@@ -279,3 +279,89 @@ fn main() {
         assert!(!redacted.contains("1234567890"), "should not contain the secret");
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn never_panics(content in "\\PC{1,5000}") {
+            let scanner = SecretScanner::default_patterns();
+            let _ = scanner.check(&content);
+        }
+
+        #[test]
+        fn deterministic(content in "\\PC{1,1000}") {
+            let scanner = SecretScanner::default_patterns();
+            let r1 = scanner.check(&content);
+            let r2 = scanner.check(&content);
+            prop_assert_eq!(r1.len(), r2.len());
+        }
+
+        #[test]
+        fn hash_comments_never_match(rest in "[a-zA-Z0-9_=:'\"/\\-]{1,200}") {
+            let line = format!("# {rest}");
+            let scanner = SecretScanner::default_patterns();
+            let matches = scanner.check(&line);
+            prop_assert!(matches.is_empty(),
+                "Hash comment matched: {}", line);
+        }
+
+        #[test]
+        fn slash_comments_never_match(rest in "[a-zA-Z0-9_=:'\"/\\-]{1,200}") {
+            let line = format!("// {rest}");
+            let scanner = SecretScanner::default_patterns();
+            let matches = scanner.check(&line);
+            prop_assert!(matches.is_empty(),
+                "Slash comment matched: {}", line);
+        }
+
+        #[test]
+        fn your_placeholder_never_matches(
+            prefix in "[a-zA-Z_]{3,15}",
+            suffix in "[a-zA-Z0-9_\\-]{5,30}"
+        ) {
+            // Lines containing "your-" or "your_" should be skipped
+            let line = format!("{prefix} = your-{suffix}");
+            let scanner = SecretScanner::default_patterns();
+            let matches = scanner.check(&line);
+            prop_assert!(matches.is_empty(),
+                "Placeholder with 'your-' matched: {}", line);
+        }
+
+        #[test]
+        fn xxx_placeholder_never_matches(
+            prefix in "[a-zA-Z_]{3,15}",
+            suffix in "[a-zA-Z0-9]{5,30}"
+        ) {
+            let line = format!("{prefix} = xxx{suffix}");
+            let scanner = SecretScanner::default_patterns();
+            let matches = scanner.check(&line);
+            prop_assert!(matches.is_empty(),
+                "Placeholder with 'xxx' matched: {}", line);
+        }
+
+        #[test]
+        fn no_catastrophic_backtracking(content in "[a-zA-Z0-9_=:'\"/\\- ]{1,10000}") {
+            let scanner = SecretScanner::default_patterns();
+            let start = std::time::Instant::now();
+            let _ = scanner.check(&content);
+            prop_assert!(start.elapsed().as_millis() < 100,
+                "Took {}ms on input length {}", start.elapsed().as_millis(), content.len());
+        }
+
+        #[test]
+        fn file_allowlist_suffix_match(
+            base in "[a-z]{3,10}",
+            ext in prop::sample::select(vec![".pem", ".key", ".json", ".env"])
+        ) {
+            let file_name = format!("tests/fixtures/{base}{ext}");
+            let scanner = SecretScanner::from_config(&[], &[file_name.clone()]);
+            prop_assert!(scanner.is_file_allowed(&file_name));
+            let full_path = format!("/home/user/repo/{}", file_name);
+            prop_assert!(scanner.is_file_allowed(&full_path));
+        }
+    }
+}

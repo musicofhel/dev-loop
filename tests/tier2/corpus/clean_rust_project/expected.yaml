@@ -1,0 +1,6 @@
+description: "Clean Rust project - all gates should pass"
+expected_gates:
+  semgrep:
+    passed: true
+  secrets:
+    passed: true

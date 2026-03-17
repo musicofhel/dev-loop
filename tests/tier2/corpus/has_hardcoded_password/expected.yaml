@@ -1,0 +1,6 @@
+description: "Hardcoded password in settings — gitleaks does not detect passwords in YAML"
+known_gap: true
+note: "gitleaks and betterleaks detect patterns (API keys, tokens) not generic passwords"
+expected_gates:
+  secrets:
+    passed: true

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 433.466 727.7" width="433.466" height="727.7" style="--bg:#0d1117;--fg:#e6edf3;--line:#8b949e;--accent:#58a6ff;--muted:#8b949e;--surface:#161b22;--border:#30363d;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="START" data-to="S1" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="243.36116666666663,76.9 243.36116666666663,124.9" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="S1" data-to="S2" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="243.36116666666663,178.70000000000002 243.36116666666663,226.70000000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="S2" data-to="S3" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="243.36116666666663,280.5 243.36116666666663,304.5 150.46466666666666,304.5 150.46466666666666,328.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="S3" data-to="S4" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="150.46466666666666,382.30000000000007 150.46466666666666,430.30000000000007" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="S4" data-to="S5" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="150.46466666666666,484.1000000000001 150.46466666666666,508.1 116.9205,508.1 116.9205,532.1" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="S5" data-to="REPORT" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="116.9205,585.9 116.9205,609.9000000000001 212.28699999999998,609.9000000000001 212.28699999999998,633.9000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="S2" data-to="BASELINE" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="243.36116666666663,280.5 243.36116666666663,304.5 307.6535,304.5 307.6535,532.1" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="S4" data-to="BASELINE" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="150.46466666666666,484.1000000000001 150.46466666666666,508.1 307.6535,508.1 307.6535,532.1" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="BASELINE" data-to="REPORT" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="307.6535,585.9 307.6535,609.9000000000001 212.28699999999998,609.9000000000001 212.28699999999998,633.9000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="node" data-id="START" data-label="just calibrate" data-shape="rectangle">
+  <rect x="184.96566666666664" y="40" width="116.79099999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="243.36116666666663" y="58.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">just calibrate</text>
+</g>
+<g class="node" data-id="S1" data-label="Stage 1: Shadow Report
+(last 7 days)" data-shape="rectangle">
+  <rect x="155.32566666666665" y="124.9" width="176.07099999999997" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="243.36116666666663" y="151.8" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="243.36116666666663" dy="-3.9000000000000012">Stage 1: Shadow Report</tspan><tspan x="243.36116666666663" dy="16.900000000000002">(last 7 days)</tspan></text>
+</g>
+<g class="node" data-id="S2" data-label="Stage 2: Replay Harness
+(10K+ tool calls)" data-shape="rectangle">
+  <rect x="150.13866666666667" y="226.70000000000002" width="186.44499999999996" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="243.36116666666663" y="253.60000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="243.36116666666663" dy="-3.9000000000000012">Stage 2: Replay Harness</tspan><tspan x="243.36116666666663" dy="16.900000000000002">(10K+ tool calls)</tspan></text>
+</g>
+<g class="node" data-id="S3" data-label="Stage 3: Tier 2 Suite
+(13 planted defects)" data-shape="rectangle">
+  <rect x="71.69166666666666" y="328.5" width="157.546" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="150.46466666666666" y="355.4" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="150.46466666666666" dy="-3.9000000000000012">Stage 3: Tier 2 Suite</tspan><tspan x="150.46466666666666" dy="16.900000000000002">(13 planted defects)</tspan></text>
+</g>
+<g class="node" data-id="S4" data-label="Stage 4: Feedback Scoring
+(P/R/F1 metrics)" data-shape="rectangle">
+  <rect x="49.832166666666666" y="430.30000000000007" width="201.265" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="150.46466666666666" y="457.20000000000005" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="150.46466666666666" dy="-3.9000000000000012">Stage 4: Feedback Scoring</tspan><tspan x="150.46466666666666" dy="16.900000000000002">(P/R/F1 metrics)</tspan></text>
+</g>
+<g class="node" data-id="S5" data-label="Stage 5: Rust Tests
+(257 tests)" data-shape="rectangle">
+  <rect x="40" y="532.1" width="153.841" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="116.9205" y="559" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="116.9205" dy="-3.9000000000000012">Stage 5: Rust Tests</tspan><tspan x="116.9205" dy="16.900000000000002">(257 tests)</tspan></text>
+</g>
+<g class="node" data-id="REPORT" data-label="Calibration Report
+docs/calibration/YYYY-MM-DD.md" data-shape="rectangle">
+  <rect x="90.536" y="633.9000000000001" width="243.50199999999995" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="212.28699999999998" y="660.8000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="212.28699999999998" dy="-3.9000000000000012">Calibration Report</tspan><tspan x="212.28699999999998" dy="16.900000000000002">docs/calibration/YYYY-MM-DD.md</tspan></text>
+</g>
+<g class="node" data-id="BASELINE" data-label="Baseline Comparison
+(regression detection)" data-shape="rectangle">
+  <rect x="221.841" y="532.1" width="171.62499999999997" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="307.6535" y="559" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="307.6535" dy="-3.9000000000000012">Baseline Comparison</tspan><tspan x="307.6535" dy="16.900000000000002">(regression detection)</tspan></text>
+</g>
+</svg>

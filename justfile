@@ -253,6 +253,108 @@ docs-toc:
     @echo "## ADRs"
     @for f in docs/adrs/*.md; do echo "- [$$(head -1 $$f | sed 's/# //')]($$f)"; done
 
+# ─── Calibration ───
+
+# Update semgrep AI security rules
+semgrep-rules-update:
+    cd ~/.local/share/semgrep-ai-rules && git pull --ff-only
+
+# Run hook conformance tests
+conformance:
+    uv run python scripts/conformance/run_conformance.py tests/conformance/pre_tool_use.yaml tests/conformance/post_tool_use.yaml
+
+# Replay tool calls from real sessions through check engine (first N, default 500)
+replay N="500":
+    uv run python scripts/replay/parse_sessions.py ~/.claude/projects/-home-musicofhel/*.jsonl | head -{{N}} | uv run python scripts/replay/run_replay.py --raw --summarize > /dev/null
+
+# Full replay with parallel workers (default 4) — outputs NDJSON + scores
+replay-full WORKERS="4":
+    uv run python scripts/replay/parse_sessions.py ~/.claude/projects/-home-musicofhel/*.jsonl | \
+        uv run python scripts/replay/run_replay.py --raw --json --workers {{WORKERS}} | \
+        uv run python scripts/replay/score.py --json
+
+# Generate baseline from full replay (saves to scripts/replay/baselines/)
+replay-baseline WORKERS="4":
+    mkdir -p scripts/replay/baselines
+    uv run python scripts/replay/parse_sessions.py ~/.claude/projects/-home-musicofhel/*.jsonl | \
+        uv run python scripts/replay/run_replay.py --raw --json --workers {{WORKERS}} | \
+        uv run python scripts/replay/score.py --json > scripts/replay/baselines/$(date +%Y-%m-%d)-baseline.json
+    @echo "Baseline saved to scripts/replay/baselines/$(date +%Y-%m-%d)-baseline.json"
+
+# Score replay against baseline (regression detection)
+replay-score BASELINE:
+    uv run python scripts/replay/parse_sessions.py ~/.claude/projects/-home-musicofhel/*.jsonl | \
+        uv run python scripts/replay/run_replay.py --raw --json --workers 4 | \
+        uv run python scripts/replay/score.py --json --baseline {{BASELINE}}
+
+# Full replay stats (all tool calls from all sessions)
+replay-stats:
+    uv run python scripts/replay/parse_sessions.py ~/.claude/projects/-home-musicofhel/*.jsonl --stats
+
+# Run replay harness tests
+replay-test:
+    uv run pytest tests/replay/test_replay.py -v
+
+# ─── Feedback Loop ───
+
+# Score labeled feedback data (precision/recall/F1 per check type)
+feedback-score:
+    uv run python scripts/feedback/score.py
+
+# Score feedback as JSON
+feedback-score-json:
+    uv run python scripts/feedback/score.py --json
+
+# Score + append to history
+feedback-score-history:
+    uv run python scripts/feedback/score.py --history
+
+# Score against a baseline (regression detection)
+feedback-score-baseline BASELINE:
+    uv run python scripts/feedback/score.py --baseline {{BASELINE}}
+
+# Suggest config tuning from feedback data
+feedback-suggest:
+    uv run python scripts/feedback/suggest_tuning.py
+
+# Run feedback tests
+feedback-test:
+    uv run pytest tests/feedback/ -v
+
+# ─── Calibration Pipeline ───
+
+# Run full calibration pipeline (shadow + replay + tier2 + feedback + rust tests)
+# Use --skip-rust to skip the Rust compilation+test stage
+calibrate *ARGS:
+    bash scripts/calibrate.sh {{ARGS}}
+
+# Save current replay state as a baseline
+calibrate-baseline WORKERS="4":
+    mkdir -p scripts/replay/baselines scripts/feedback/baselines
+    uv run python scripts/replay/parse_sessions.py ~/.claude/projects/-home-musicofhel/*.jsonl | \
+        uv run python scripts/replay/run_replay.py --raw --json --workers {{WORKERS}} | \
+        uv run python scripts/replay/score.py --json > scripts/replay/baselines/$(date +%Y-%m-%d)-baseline.json
+    uv run python scripts/feedback/score.py --json > scripts/feedback/baselines/$(date +%Y-%m-%d)-baseline.json
+    @echo "Baselines saved for $(date +%Y-%m-%d)"
+
+# ─── Tier 2 Planted-Defect Suite ───
+
+# Run planted-defect regression suite (13 scenarios)
+tier2-test:
+    uv run pytest tests/tier2/test_checkpoint_gates.py -v
+
+# Run only secrets gate tests
+tier2-secrets:
+    uv run pytest tests/tier2/test_checkpoint_gates.py -v -k "TestSecretsGate"
+
+# Run only semgrep gate tests
+tier2-semgrep:
+    uv run pytest tests/tier2/test_checkpoint_gates.py -v -k "TestSemgrepGate"
+
+# Validate corpus YAML schema and structure
+tier2-corpus-validate:
+    uv run python scripts/tier2/validate_corpus.py
+
 # ─── Daemon (dl) ───
 
 # Build the Rust daemon (debug)

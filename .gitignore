@@ -16,5 +16,9 @@ __pycache__/
 .pytest_cache/
 .dmux/
 
+# Node (diagram rendering only)
+package.json
+package-lock.json
+
 # Rust
 daemon/target/

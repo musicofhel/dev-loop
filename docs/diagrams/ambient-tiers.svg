@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 668.193 150.7" width="668.193" height="150.7" style="--bg:#0d1117;--fg:#e6edf3;--line:#8b949e;--accent:#58a6ff;--muted:#8b949e;--surface:#161b22;--border:#30363d;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="CC" data-to="T1" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="156.791,75.35 204.791,75.35" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="T1" data-to="T2" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="309.726,75.35 357.726,75.35" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="T2" data-to="T3" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="466.366,75.35 514.366,75.35" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="node" data-id="CC" data-label="Claude Code
+Session" data-shape="rectangle">
+  <rect x="40" y="48.45" width="116.79099999999998" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="98.3955" y="75.35000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="98.3955" dy="-3.9000000000000012">Claude Code</tspan><tspan x="98.3955" dy="16.900000000000002">Session</tspan></text>
+</g>
+<g class="node" data-id="T1" data-label="Tier 1
+Always-On
+&lt; 5ms" data-shape="rectangle">
+  <rect x="204.791" y="40" width="104.93499999999999" height="70.7" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="257.25849999999997" y="75.35" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="257.25849999999997" dy="-12.350000000000001">Tier 1</tspan><tspan x="257.25849999999997" dy="16.900000000000002">Always-On</tspan><tspan x="257.25849999999997" dy="16.900000000000002">&lt; 5ms</tspan></text>
+</g>
+<g class="node" data-id="T2" data-label="Tier 2
+Checkpoint
+~30s" data-shape="rectangle">
+  <rect x="357.726" y="40" width="108.64000000000001" height="70.7" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="412.046" y="75.35" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="412.046" dy="-12.350000000000001">Tier 2</tspan><tspan x="412.046" dy="16.900000000000002">Checkpoint</tspan><tspan x="412.046" dy="16.900000000000002">~30s</tspan></text>
+</g>
+<g class="node" data-id="T3" data-label="Tier 3
+Full Pipeline
+~minutes" data-shape="rectangle">
+  <rect x="514.366" y="40" width="113.827" height="70.7" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="571.2795" y="75.35" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="571.2795" dy="-12.350000000000001">Tier 3</tspan><tspan x="571.2795" dy="16.900000000000002">Full Pipeline</tspan><tspan x="571.2795" dy="16.900000000000002">~minutes</tspan></text>
+</g>
+</svg>

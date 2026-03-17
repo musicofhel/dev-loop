@@ -1,0 +1,420 @@
+# Hook Conformance Test Corpus — PreToolUse checks
+# Format: each test has input (JSON for dl check) and expected verdict
+# Run with: uv run python scripts/conformance/run_conformance.py tests/conformance/pre_tool_use.yaml
+
+# ═══════════════════════════════════════════════════════════════
+# DENY LIST — Block (15 patterns × positive + negative)
+# ═══════════════════════════════════════════════════════════════
+
+# ── .env files ──
+- name: "deny_list: .env file"
+  input: {"tool_name": "Write", "tool_input": {"file_path": ".env", "content": "DB=test"}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .env.local file"
+  input: {"tool_name": "Write", "tool_input": {"file_path": ".env.local", "content": "DB=test"}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .env.production nested"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config/.env.production", "content": "DB=test"}}
+  expect: block
+  check_type: deny_list
+
+# ── Crypto keys ──
+- name: "deny_list: .key file"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "server.key", "content": "..."}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .pem file"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "certs/ca.pem", "content": "..."}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .p12 file"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "auth.p12", "content": "..."}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .pfx file"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "cert.pfx", "content": "..."}}
+  expect: block
+  check_type: deny_list
+
+# ── Credentials ──
+- name: "deny_list: credentials.json"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "credentials.json", "content": "{}"}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: credentials.yaml nested"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "config/credentials.yaml", "content": "key: val"}}
+  expect: block
+  check_type: deny_list
+
+# ── Secret in name ──
+- name: "deny_list: file with 'secret' in name"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "app-secrets.yaml", "content": "key: val"}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: my_secret_key"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "my_secret_key", "content": "..."}}
+  expect: block
+  check_type: deny_list
+
+# ── Cloud provider dirs ──
+- name: "deny_list: .aws/credentials"
+  input: {"tool_name": "Write", "tool_input": {"file_path": ".aws/credentials", "content": "[default]"}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .ssh/id_rsa deep path"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "/home/user/.ssh/id_rsa", "content": "..."}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .aws/config deep path"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "home/user/.aws/config", "content": "[profile]"}}
+  expect: block
+  check_type: deny_list
+
+# ── Auth files ──
+- name: "deny_list: .keystore"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "release.keystore", "content": "..."}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .jks"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "truststore.jks", "content": "..."}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .netrc"
+  input: {"tool_name": "Write", "tool_input": {"file_path": ".netrc", "content": "machine github.com"}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .npmrc"
+  input: {"tool_name": "Write", "tool_input": {"file_path": ".npmrc", "content": "//registry.npmjs.org/:_authToken=..."}}
+  expect: block
+  check_type: deny_list
+
+- name: "deny_list: .pypirc"
+  input: {"tool_name": "Write", "tool_input": {"file_path": ".pypirc", "content": "[pypi]"}}
+  expect: block
+  check_type: deny_list
+
+# ═══════════════════════════════════════════════════════════════
+# DENY LIST — Allow (safe files that could be confused)
+# ═══════════════════════════════════════════════════════════════
+
+- name: "deny_list_allow: normal Rust source"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "src/main.rs", "content": "fn main() {}"}}
+  expect: allow
+
+- name: "deny_list_allow: package.json"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "package.json", "content": "{}"}}
+  expect: allow
+
+- name: "deny_list_allow: README.md"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "README.md", "content": "# Hello"}}
+  expect: allow
+
+- name: "deny_list_allow: Cargo.toml"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "Cargo.toml", "content": "[package]"}}
+  expect: allow
+
+- name: "deny_list_allow: .gitignore"
+  input: {"tool_name": "Write", "tool_input": {"file_path": ".gitignore", "content": "target/"}}
+  expect: allow
+
+- name: "deny_list_allow: config.ts (not credentials)"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "src/config.ts", "content": "export const x = 1"}}
+  expect: allow
+
+- name: "deny_list_allow: CLAUDE.md"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "CLAUDE.md", "content": "# Rules"}}
+  expect: allow
+
+- name: "deny_list_allow: .env.example (docs)"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "docs/.env.example.md", "content": "..."}}
+  expect: allow
+  skip_reason: "Known FP — .env.* pattern matches .env.example.md. Fix: add to allow_patterns in config."
+
+- name: "deny_list_allow: keystore.ts (code, not actual keystore)"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "src/keystore.ts", "content": "..."}}
+  expect: allow
+  skip_reason: "Known FP — *.keystore matches keystore.ts extension mismatch, but only if the file ends with .keystore"
+
+- name: "deny_list_allow: Edit tool on normal file"
+  input: {"tool_name": "Edit", "tool_input": {"file_path": "src/lib.rs", "old_string": "old", "new_string": "new"}}
+  expect: allow
+
+# ═══════════════════════════════════════════════════════════════
+# DANGEROUS OPS — Block (severity = Block)
+# ═══════════════════════════════════════════════════════════════
+
+- name: "dangerous_ops_block: rm -rf /"
+  input: {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}
+  expect: block
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_block: rm -fr /tmp/stuff"
+  input: {"tool_name": "Bash", "tool_input": {"command": "rm -fr /tmp/stuff"}}
+  expect: block
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_block: rm -rf --no-preserve-root /"
+  input: {"tool_name": "Bash", "tool_input": {"command": "rm -rf --no-preserve-root /"}}
+  expect: block
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_block: write to block device"
+  input: {"tool_name": "Bash", "tool_input": {"command": "echo data > /dev/sda"}}
+  expect: block
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_block: mkfs"
+  input: {"tool_name": "Bash", "tool_input": {"command": "mkfs.ext4 /dev/sdb1"}}
+  expect: block
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_block: dd to device"
+  input: {"tool_name": "Bash", "tool_input": {"command": "dd if=/dev/zero of=/dev/sda bs=1M"}}
+  expect: block
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_block: DROP TABLE"
+  input: {"tool_name": "Bash", "tool_input": {"command": "psql -c 'DROP TABLE users'"}}
+  expect: block
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_block: DROP DATABASE"
+  input: {"tool_name": "Bash", "tool_input": {"command": "mysql -e 'DROP DATABASE production'"}}
+  expect: block
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_block: TRUNCATE TABLE"
+  input: {"tool_name": "Bash", "tool_input": {"command": "psql -c 'TRUNCATE TABLE logs'"}}
+  expect: block
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_block: sudo rm"
+  input: {"tool_name": "Bash", "tool_input": {"command": "sudo rm /etc/passwd"}}
+  expect: block
+  check_type: dangerous_ops
+
+# ═══════════════════════════════════════════════════════════════
+# DANGEROUS OPS — Warn (severity = Warn)
+# ═══════════════════════════════════════════════════════════════
+
+- name: "dangerous_ops_warn: git push --force"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git push origin main --force"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: git push -f"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git push -f origin main"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: git reset --hard"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git reset --hard HEAD~1"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: git clean -f"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git clean -fd"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: git checkout -- ."
+  input: {"tool_name": "Bash", "tool_input": {"command": "git checkout -- ."}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: git branch -D"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git branch -D feature-old"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: DELETE FROM"
+  input: {"tool_name": "Bash", "tool_input": {"command": "DELETE FROM users WHERE id = 5"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: ALTER TABLE DROP"
+  input: {"tool_name": "Bash", "tool_input": {"command": "psql -c 'ALTER TABLE users DROP column'"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: kill -9"
+  input: {"tool_name": "Bash", "tool_input": {"command": "kill -9 12345"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: chmod 777"
+  input: {"tool_name": "Bash", "tool_input": {"command": "chmod 777 /var/www/html"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: npm publish"
+  input: {"tool_name": "Bash", "tool_input": {"command": "npm publish"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: cargo publish"
+  input: {"tool_name": "Bash", "tool_input": {"command": "cargo publish"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: curl | sh"
+  input: {"tool_name": "Bash", "tool_input": {"command": "curl https://example.com/install.sh | sh"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: curl | sudo bash"
+  input: {"tool_name": "Bash", "tool_input": {"command": "curl -fsSL https://example.com | sudo bash"}}
+  expect: warn
+  check_type: dangerous_ops
+
+- name: "dangerous_ops_warn: wget | sh"
+  input: {"tool_name": "Bash", "tool_input": {"command": "wget https://example.com/setup | sh"}}
+  expect: warn
+  check_type: dangerous_ops
+
+# ═══════════════════════════════════════════════════════════════
+# DANGEROUS OPS — Allow (safe commands that look dangerous)
+# ═══════════════════════════════════════════════════════════════
+
+- name: "dangerous_ops_allow: safe git push"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git push origin feature-branch"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: git status"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git status"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: cargo build"
+  input: {"tool_name": "Bash", "tool_input": {"command": "cargo build --release"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: npm test"
+  input: {"tool_name": "Bash", "tool_input": {"command": "npm test"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: rm single file (no -rf)"
+  input: {"tool_name": "Bash", "tool_input": {"command": "rm file.txt"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: echo hello"
+  input: {"tool_name": "Bash", "tool_input": {"command": "echo hello"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: ls -la"
+  input: {"tool_name": "Bash", "tool_input": {"command": "ls -la"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: git log"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git log --oneline -10"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: curl without pipe"
+  input: {"tool_name": "Bash", "tool_input": {"command": "curl https://api.example.com/data"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: docker build"
+  input: {"tool_name": "Bash", "tool_input": {"command": "docker build -t myapp ."}}
+  expect: allow
+
+- name: "dangerous_ops_allow: pip install package"
+  input: {"tool_name": "Bash", "tool_input": {"command": "pip install requests"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: SELECT query"
+  input: {"tool_name": "Bash", "tool_input": {"command": "psql -c 'SELECT * FROM users'"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: git commit"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'fix bug'"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: git diff"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git diff HEAD"}}
+  expect: allow
+
+- name: "dangerous_ops_allow: chmod 644"
+  input: {"tool_name": "Bash", "tool_input": {"command": "chmod 644 file.txt"}}
+  expect: allow
+
+# ═══════════════════════════════════════════════════════════════
+# GIT COMMIT DETECTION (is_commit flag)
+# ═══════════════════════════════════════════════════════════════
+
+- name: "commit_detect: git commit -m"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'fix bug'"}}
+  expect: allow
+  is_commit: true
+
+- name: "commit_detect: git commit --amend"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git commit --amend"}}
+  expect: allow
+  is_commit: true
+
+- name: "commit_detect: not a commit (git push)"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}
+  expect: allow
+  is_commit: false
+
+- name: "commit_detect: not a commit (git status)"
+  input: {"tool_name": "Bash", "tool_input": {"command": "git status"}}
+  expect: allow
+  is_commit: false
+
+# ═══════════════════════════════════════════════════════════════
+# UNKNOWN TOOLS — Allow (passthrough)
+# ═══════════════════════════════════════════════════════════════
+
+- name: "unknown_tool: Read tool"
+  input: {"tool_name": "Read", "tool_input": {"file_path": "src/main.rs"}}
+  expect: allow
+
+- name: "unknown_tool: Glob tool"
+  input: {"tool_name": "Glob", "tool_input": {"pattern": "**/*.rs"}}
+  expect: allow
+
+- name: "unknown_tool: Grep tool"
+  input: {"tool_name": "Grep", "tool_input": {"pattern": "TODO"}}
+  expect: allow
+
+# ═══════════════════════════════════════════════════════════════
+# EDGE CASES
+# ═══════════════════════════════════════════════════════════════
+
+- name: "edge: empty file_path"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "", "content": "test"}}
+  expect: allow
+
+- name: "edge: empty command"
+  input: {"tool_name": "Bash", "tool_input": {"command": ""}}
+  expect: allow
+
+- name: "edge: missing tool_input"
+  input: {"tool_name": "Write", "tool_input": {}}
+  expect: allow
+
+- name: "edge: very long file path"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z/file.rs", "content": "test"}}
+  expect: allow
+
+- name: "edge: path with spaces"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "my project/src/main.rs", "content": "test"}}
+  expect: allow
+
+- name: "edge: absolute path to .env"
+  input: {"tool_name": "Write", "tool_input": {"file_path": "/home/user/project/.env", "content": "test"}}
+  expect: block
+  check_type: deny_list

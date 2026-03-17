@@ -214,3 +214,63 @@ mod tests {
         assert!(dl().check(".gitignore").is_none());
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn never_panics(path in "\\PC{1,500}") {
+            let dl = DenyList::default_patterns();
+            let _ = dl.check(&path);
+        }
+
+        #[test]
+        fn deterministic(path in "\\PC{1,200}") {
+            let dl = DenyList::default_patterns();
+            let r1 = dl.check(&path);
+            let r2 = dl.check(&path);
+            prop_assert_eq!(r1.is_some(), r2.is_some());
+        }
+
+        #[test]
+        fn remove_patterns_always_subtract(
+            remove_idx in 0usize..BUILTIN_DENY_PATTERNS.len(),
+            path in "\\PC{1,200}"
+        ) {
+            let removed = BUILTIN_DENY_PATTERNS[remove_idx].to_string();
+            let dl_full = DenyList::default_patterns();
+            let dl_reduced = DenyList::from_config(&[], &[removed.clone()]);
+
+            let full_result = dl_full.check(&path);
+            let reduced_result = dl_reduced.check(&path);
+
+            // If the reduced list allows it, we can't say much.
+            // But if the reduced list blocks it, the full list must too.
+            if reduced_result.is_some() {
+                prop_assert!(full_result.is_some(),
+                    "Reduced list blocked but full list allowed: path={}", path);
+            }
+        }
+
+        #[test]
+        fn extra_patterns_only_add_blocks(
+            extra in "[a-z*.]{2,20}",
+            path in "[a-zA-Z0-9_./\\-]{1,100}"
+        ) {
+            let dl_base = DenyList::default_patterns();
+            let dl_extra = DenyList::from_config(&[extra], &[]);
+
+            let base_result = dl_base.check(&path);
+            let extra_result = dl_extra.check(&path);
+
+            // If base blocks, extra must also block (extra only adds)
+            if base_result.is_some() {
+                prop_assert!(extra_result.is_some(),
+                    "Base blocked but extra allowed: path={}", path);
+            }
+        }
+    }
+}

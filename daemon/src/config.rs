@@ -42,6 +42,24 @@ fn default_context_limit() -> u64 {
 fn default_context_warn_pct() -> f32 {
     0.85
 }
+fn default_fail_mode() -> String {
+    "open".to_string()
+}
+fn default_gate_timeout() -> u64 {
+    60
+}
+fn default_channel_capacity() -> usize {
+    10_000
+}
+fn default_max_file_size_mb() -> u64 {
+    50
+}
+fn default_max_rotated_files() -> u32 {
+    3
+}
+fn default_ambient_mode() -> String {
+    "enforce".to_string()
+}
 
 // ── Global Config (~/.config/dev-loop/ambient.yaml) ────────────
 
@@ -53,6 +71,9 @@ pub struct AmbientConfig {
     pub tier1: bool,
     #[serde(default = "default_true")]
     pub tier2: bool,
+    /// "enforce" (default), "shadow" (log only, never block), or "disabled"
+    #[serde(default = "default_ambient_mode")]
+    pub ambient_mode: String,
     #[serde(default)]
     pub daemon: DaemonConfig,
     #[serde(default)]
@@ -67,6 +88,8 @@ pub struct AmbientConfig {
     pub checkpoint: CheckpointConfig,
     #[serde(default)]
     pub continuity: ContinuityConfig,
+    #[serde(default)]
+    pub event_log: EventLogConfig,
 }
 
 impl Default for AmbientConfig {
@@ -75,6 +98,7 @@ impl Default for AmbientConfig {
             enabled: true,
             tier1: true,
             tier2: true,
+            ambient_mode: default_ambient_mode(),
             daemon: DaemonConfig::default(),
             deny_list: PatternOverrides::default(),
             dangerous_ops: DangerousOpsOverrides::default(),
@@ -82,6 +106,7 @@ impl Default for AmbientConfig {
             observability: ObservabilityConfig::default(),
             checkpoint: CheckpointConfig::default(),
             continuity: ContinuityConfig::default(),
+            event_log: EventLogConfig::default(),
         }
     }
 }
@@ -169,6 +194,25 @@ pub struct CheckpointConfig {
     pub atdd_required: bool,
     #[serde(default)]
     pub test_command: Option<String>,
+    #[serde(default = "default_semgrep_extra_configs")]
+    pub semgrep_extra_configs: Vec<String>,
+    /// "open" (default) = skip gate when tool missing; "closed" = fail gate
+    #[serde(default = "default_fail_mode")]
+    pub fail_mode: String,
+    /// Overall checkpoint timeout in seconds (default: 60)
+    #[serde(default = "default_gate_timeout")]
+    pub gate_timeout_s: u64,
+}
+
+fn default_semgrep_extra_configs() -> Vec<String> {
+    let default_path = dirs::home_dir()
+        .map(|h| h.join(".local/share/semgrep-ai-rules/rules"))
+        .filter(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string());
+    match default_path {
+        Some(p) => vec![p],
+        None => vec![],
+    }
 }
 
 impl Default for CheckpointConfig {
@@ -178,6 +222,9 @@ impl Default for CheckpointConfig {
             skip_review: false,
             atdd_required: false,
             test_command: None,
+            semgrep_extra_configs: default_semgrep_extra_configs(),
+            fail_mode: default_fail_mode(),
+            gate_timeout_s: default_gate_timeout(),
         }
     }
 }
@@ -195,6 +242,26 @@ impl Default for ContinuityConfig {
         Self {
             context_limit: default_context_limit(),
             context_warn_pct: default_context_warn_pct(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EventLogConfig {
+    #[serde(default = "default_channel_capacity")]
+    pub channel_capacity: usize,
+    #[serde(default = "default_max_file_size_mb")]
+    pub max_file_size_mb: u64,
+    #[serde(default = "default_max_rotated_files")]
+    pub max_rotated_files: u32,
+}
+
+impl Default for EventLogConfig {
+    fn default() -> Self {
+        Self {
+            channel_capacity: default_channel_capacity(),
+            max_file_size_mb: default_max_file_size_mb(),
+            max_rotated_files: default_max_rotated_files(),
         }
     }
 }
@@ -236,6 +303,7 @@ pub struct MergedConfig {
     pub enabled: bool,
     pub tier1: bool,
     pub tier2: bool,
+    pub ambient_mode: String,
 
     // Deny list: built-in + extra - remove
     pub deny_list_extra: Vec<String>,
@@ -254,6 +322,7 @@ pub struct MergedConfig {
     pub observability: ObservabilityConfig,
     pub checkpoint: CheckpointConfig,
     pub continuity: ContinuityConfig,
+    pub event_log: EventLogConfig,
 
     // Where the repo config came from (if any)
     pub repo_root: Option<PathBuf>,
@@ -377,6 +446,7 @@ fn merge(
         enabled,
         tier1: global.tier1,
         tier2: global.tier2,
+        ambient_mode: global.ambient_mode.clone(),
         deny_list_extra,
         deny_list_remove,
         dangerous_ops_extra,
@@ -387,6 +457,7 @@ fn merge(
         observability: global.observability.clone(),
         checkpoint,
         continuity: global.continuity.clone(),
+        event_log: global.event_log.clone(),
         repo_root,
     }
 }
@@ -538,7 +609,62 @@ pub fn lint(merged: &MergedConfig) -> Vec<LintWarning> {
         });
     }
 
+    // Tool availability: warn/error depending on fail_mode
+    let fail_closed = merged.checkpoint.fail_mode == "closed";
+    if merged.checkpoint.gates.contains(&"semgrep".to_string()) && !is_tool_on_path("semgrep") {
+        warnings.push(LintWarning {
+            level: if fail_closed { LintLevel::Error } else { LintLevel::Warning },
+            field: "checkpoint.gates".into(),
+            message: "Gate 'semgrep' is enabled but semgrep is not installed".into(),
+        });
+    }
+    if merged.checkpoint.gates.contains(&"secrets".to_string())
+        && !is_tool_on_path("betterleaks")
+        && !is_tool_on_path("gitleaks")
+    {
+        warnings.push(LintWarning {
+            level: if fail_closed { LintLevel::Error } else { LintLevel::Warning },
+            field: "checkpoint.gates".into(),
+            message: "Gate 'secrets' is enabled but neither betterleaks nor gitleaks is installed"
+                .into(),
+        });
+    }
+
+    // Invalid ambient_mode
+    if !["enforce", "shadow", "disabled"].contains(&merged.ambient_mode.as_str()) {
+        warnings.push(LintWarning {
+            level: LintLevel::Error,
+            field: "ambient_mode".into(),
+            message: format!(
+                "Invalid ambient_mode '{}' — must be 'enforce', 'shadow', or 'disabled'",
+                merged.ambient_mode
+            ),
+        });
+    }
+
+    // Invalid fail_mode
+    if merged.checkpoint.fail_mode != "open" && merged.checkpoint.fail_mode != "closed" {
+        warnings.push(LintWarning {
+            level: LintLevel::Error,
+            field: "checkpoint.fail_mode".into(),
+            message: format!(
+                "Invalid fail_mode '{}' — must be 'open' or 'closed'",
+                merged.checkpoint.fail_mode
+            ),
+        });
+    }
+
     warnings
+}
+
+fn is_tool_on_path(name: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 pub fn lint_and_print(dir: Option<&str>) {
@@ -894,6 +1020,94 @@ checkpoint:
         let merged = merge(&global, None);
         let warnings = lint(&merged);
         assert!(warnings.iter().any(|w| w.field == "observability.openobserve_user"));
+    }
+
+    #[test]
+    fn lint_invalid_fail_mode() {
+        let global = AmbientConfig {
+            checkpoint: CheckpointConfig {
+                fail_mode: "invalid".into(),
+                ..Default::default()
+            },
+            observability: ObservabilityConfig {
+                openobserve_user: "admin".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let merged = merge(&global, None);
+        let warnings = lint(&merged);
+        assert!(warnings.iter().any(|w| w.field == "checkpoint.fail_mode"));
+    }
+
+    #[test]
+    fn parse_checkpoint_fail_mode() {
+        let yaml = "checkpoint:\n  fail_mode: closed\n  gate_timeout_s: 120\n";
+        let config: AmbientConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.checkpoint.fail_mode, "closed");
+        assert_eq!(config.checkpoint.gate_timeout_s, 120);
+    }
+
+    #[test]
+    fn checkpoint_fail_mode_defaults_to_open() {
+        let config = CheckpointConfig::default();
+        assert_eq!(config.fail_mode, "open");
+        assert_eq!(config.gate_timeout_s, 60);
+    }
+
+    #[test]
+    fn parse_event_log_config() {
+        let yaml = "event_log:\n  channel_capacity: 5000\n  max_file_size_mb: 100\n  max_rotated_files: 5\n";
+        let config: AmbientConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.event_log.channel_capacity, 5000);
+        assert_eq!(config.event_log.max_file_size_mb, 100);
+        assert_eq!(config.event_log.max_rotated_files, 5);
+    }
+
+    #[test]
+    fn event_log_config_defaults() {
+        let config = EventLogConfig::default();
+        assert_eq!(config.channel_capacity, 10_000);
+        assert_eq!(config.max_file_size_mb, 50);
+        assert_eq!(config.max_rotated_files, 3);
+    }
+
+    #[test]
+    fn parse_ambient_mode_shadow() {
+        let yaml = "ambient_mode: shadow\n";
+        let config: AmbientConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.ambient_mode, "shadow");
+    }
+
+    #[test]
+    fn ambient_mode_defaults_to_enforce() {
+        let config = AmbientConfig::default();
+        assert_eq!(config.ambient_mode, "enforce");
+    }
+
+    #[test]
+    fn lint_invalid_ambient_mode() {
+        let global = AmbientConfig {
+            ambient_mode: "invalid".into(),
+            observability: ObservabilityConfig {
+                openobserve_user: "admin".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let merged = merge(&global, None);
+        let warnings = lint(&merged);
+        assert!(warnings.iter().any(|w| w.field == "ambient_mode"));
+    }
+
+    #[test]
+    fn merged_config_includes_ambient_mode() {
+        let global = AmbientConfig {
+            ambient_mode: "shadow".into(),
+            ..Default::default()
+        };
+        let merged = merge(&global, None);
+        assert_eq!(merged.ambient_mode, "shadow");
     }
 
     #[test]

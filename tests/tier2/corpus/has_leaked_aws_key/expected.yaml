@@ -1,0 +1,5 @@
+description: "AWS access key leaked in .env file"
+expected_gates:
+  secrets:
+    passed: false
+    reason_contains: "secret"

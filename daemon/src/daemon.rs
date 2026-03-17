@@ -67,7 +67,7 @@ pub fn start() {
     // Fork into background: re-exec ourselves with a hidden env var
     if std::env::var("_DL_DAEMON").is_err() {
         let exe = std::env::current_exe().expect("cannot find own executable");
-        let child = std::process::Command::new(exe)
+        let mut child = std::process::Command::new(exe)
             .arg("start")
             .env("_DL_DAEMON", "1")
             .stdin(std::process::Stdio::null())
@@ -76,8 +76,25 @@ pub fn start() {
             .spawn()
             .expect("failed to spawn daemon");
 
-        println!("Daemon started (pid {})", child.id());
-        return;
+        // Wait for socket to appear (confirms daemon bound successfully)
+        let sock = socket_path();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            if sock.exists() {
+                println!("Daemon started (pid {})", child.id());
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        eprintln!("Daemon failed to start (socket not bound after 2s)");
+        // Check if child is still alive
+        match child.try_wait() {
+            Ok(Some(status)) => eprintln!("  Child exited with: {status}"),
+            Ok(None) => eprintln!("  Child still running but socket not created"),
+            Err(e) => eprintln!("  Could not check child: {e}"),
+        }
+        std::process::exit(1);
     }
 
     // We are the daemon process
@@ -86,10 +103,15 @@ pub fn start() {
     let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
     rt.block_on(async {
         let sse = SseBroadcast::new();
-        let event_log = EventLogWriter::spawn(&event_log_path());
         let check_engine = CheckEngine::new();
         let sessions = session::new_session_map();
         let global_config = config::load();
+        let event_log = EventLogWriter::spawn(
+            &event_log_path(),
+            global_config.event_log.channel_capacity,
+            global_config.event_log.max_file_size_mb,
+            global_config.event_log.max_rotated_files,
+        );
         let shared_config = Arc::new(tokio::sync::RwLock::new(global_config));
 
         let state = Arc::new(ServerState {
@@ -211,8 +233,10 @@ pub fn status() {
                         let mins = (uptime % 3600) / 60;
                         let secs = uptime % 60;
                         let session_count = v["active_sessions"].as_i64().unwrap_or(0);
+                        let mode = v["ambient_mode"].as_str().unwrap_or("enforce");
                         println!("Status:   running");
                         println!("PID:      {pid}");
+                        println!("Mode:     {mode}");
                         println!("Uptime:   {hours:02}:{mins:02}:{secs:02}");
                         println!("Sessions: {session_count} active");
                         if let Some(sessions) = v["sessions"].as_array() {
@@ -230,6 +254,9 @@ pub fn status() {
                                 );
                             }
                         }
+                        let events_logged = v["events_logged"].as_u64().unwrap_or(0);
+                        let events_dropped = v["events_dropped"].as_u64().unwrap_or(0);
+                        println!("Events:   {events_logged} logged, {events_dropped} dropped");
                         println!("Socket:   {}", socket_path().display());
                     } else {
                         println!("Running (pid {pid}), raw response: {body}");

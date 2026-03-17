@@ -1,0 +1,604 @@
+# =============================================================================
+# dev-loop Ambient Layer — Testing & Calibration Plan
+# =============================================================================
+# Date: 2026-03-16
+# Status: DRAFT
+# Goal: Make the ambient layer provably reliable via shadow mode, replay,
+#        planted-defect regression, and per-check feedback scoring.
+# Prerequisite: Fix critical silent failures BEFORE calibration work.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PHASE 0: Fix Silent Failures (P0 — do this first)
+# These are bugs, not features. The system lies to the user today.
+# -----------------------------------------------------------------------------
+phase_0:
+  name: "Fix Silent Failures"
+  rationale: >
+    Cannot calibrate a system that fails silently. OTel export drops spans,
+    checkpoint gates fail-open, daemon startup lies about success, event log
+    drops events. Fix these before measuring anything.
+  estimated_effort: "2-3 sessions"
+
+  steps:
+    - id: p0.1
+      name: "OTel export error handling"
+      files:
+        - daemon/src/otel.rs
+      what: |
+        - Replace raw TcpStream with reqwest or ureq (HTTP client with timeouts)
+        - Add 5s connect timeout, 10s request timeout
+        - Log export failures to event log with level=error
+        - Return Result<(), ExportError> instead of silently swallowing
+        - Add retry with exponential backoff (1s, 2s, 4s, give up)
+        - Add test: mock HTTP server, verify span JSON structure
+        - Add test: connection refused → logs error, doesn't panic
+        - Add test: 401 unauthorized → logs credential warning
+      tests_expected: 5
+      risk: "Currently zero error handling. Any network issue = silent data loss."
+
+    - id: p0.2
+      name: "Checkpoint gate fail-closed option"
+      files:
+        - daemon/src/checkpoint.rs
+        - daemon/src/config.rs
+      what: |
+        - Add `checkpoint.fail_mode: "open" | "closed"` config (default: "open" for backward compat)
+        - When fail_mode="closed" and semgrep/gitleaks not installed: gate FAILS
+        - Add `dl config-lint` warning when gates enabled but tools missing
+        - Run `which semgrep gitleaks` at daemon startup, cache result
+        - Log tool availability to event log on startup
+        - Add per-gate command timeout (default 60s, configurable)
+        - Use Command::new().timeout() or tokio::time::timeout
+      tests_expected: 6
+      risk: "Today: no semgrep = no SAST, user unaware. Commit passes silently."
+
+    - id: p0.3
+      name: "Daemon startup failure propagation"
+      files:
+        - daemon/src/daemon.rs
+        - daemon/src/main.rs
+      what: |
+        - After fork/spawn, parent waits 500ms then checks socket is bound
+        - If socket not bound: print error, exit 1
+        - Write startup result to a temp file that parent reads
+        - Add health check: `dl status` pings socket, reports if daemon is actually responsive
+        - PID file: verify process is alive (kill -0) before claiming "running"
+      tests_expected: 3
+      risk: "Today: dl start says 'started' but daemon may have crashed on bind."
+
+    - id: p0.4
+      name: "Event log reliability"
+      files:
+        - daemon/src/event_log.rs
+        - daemon/src/config.rs
+      what: |
+        - Add configurable channel capacity (default 10000, was 1000)
+        - Add dropped_events counter (AtomicU64), expose in `dl status`
+        - Add log rotation: max 50MB per file, keep 3 rotated files
+        - On channel full: increment counter, log warning (once per 100 drops)
+        - Add `dl status` field: events_logged, events_dropped
+      tests_expected: 4
+      risk: "Today: 1001st event silently dropped. No way to know data was lost."
+
+# -----------------------------------------------------------------------------
+# PHASE 1: Shadow Mode
+# Log-only mode where hooks record verdicts but never block.
+# Highest-value calibration feature.
+# -----------------------------------------------------------------------------
+phase_1:
+  name: "Shadow Mode"
+  rationale: >
+    Run hooks in production for a week without blocking anything. Collect
+    verdicts. Review for false positives before switching to enforcement.
+    This is how every WAF, IDS, and content filter is deployed.
+  estimated_effort: "1-2 sessions"
+  depends_on: [p0.4]  # need reliable event log first
+
+  steps:
+    - id: p1.1
+      name: "Shadow mode config toggle"
+      files:
+        - daemon/src/config.rs
+        - daemon/src/hook.rs
+      what: |
+        - Add `ambient_mode: "enforce" | "shadow" | "disabled"` to AmbientConfig
+        - Default: "enforce" (current behavior)
+        - Shadow: all checks run, verdicts logged to event log, but exit 0 always
+        - Hook output JSON includes `"shadow": true` so event log captures intent
+        - `dl status` shows current mode
+        - `dl config-lint` warns if shadow mode has been on >7 days
+      tests_expected: 4
+
+    - id: p1.2
+      name: "Shadow verdict logging"
+      files:
+        - daemon/src/hook.rs
+        - daemon/src/event_log.rs
+      what: |
+        - In shadow mode, PreToolUse hook returns exit 0 (allow) regardless of verdict
+        - But logs full verdict to event log with type="shadow_verdict"
+        - Fields: tool_name, tool_input (redacted), check_type, verdict (allow/block/warn),
+          pattern_matched, session_id, timestamp
+        - PostToolUse secrets: logs but doesn't warn user in shadow mode
+      tests_expected: 3
+
+    - id: p1.3
+      name: "Shadow analysis command: dl shadow-report"
+      files:
+        - daemon/src/shadow_report.rs (new)
+        - daemon/src/cli.rs
+        - daemon/src/main.rs
+      what: |
+        - `dl shadow-report [--last N_hours]` reads event log
+        - Filters type="shadow_verdict", groups by check_type
+        - Outputs: total checks, would-have-blocked count, top 10 patterns triggered
+        - CSV output option: `dl shadow-report --csv > shadow.csv`
+        - Highlights likely false positives: same file blocked >5 times
+      tests_expected: 4
+
+# -----------------------------------------------------------------------------
+# PHASE 2: Replay Harness
+# Extract tool calls from real session JSONLs, pipe through check engine,
+# score verdicts against expected outcomes.
+# -----------------------------------------------------------------------------
+phase_2:
+  name: "Replay Harness"
+  rationale: >
+    937K lines of real Claude Code session data exist in ~/.claude/projects/.
+    Extract tool calls, replay through the check engine, measure what would
+    have been blocked. No sandbox needed — pure function over JSON input.
+  estimated_effort: "2-3 sessions"
+  depends_on: [p1.1]  # shadow verdict format informs replay output format
+
+  steps:
+    - id: p2.1
+      name: "Session JSONL parser"
+      files:
+        - scripts/replay/parse_sessions.py (new)
+      what: |
+        - Read Claude Code JSONL format from ~/.claude/projects/
+        - Extract tool_use events: tool name, input, timestamp, session_id
+        - Filter to checkable tools: Write, Edit, Bash (the ones hooks intercept)
+        - Output: NDJSON with one line per tool call
+        - Fields: session_id, tool_name, tool_input, timestamp, file_path (if applicable)
+        - Handle: nested JSON in tool_input, Unicode, multiline content
+        - Skip: tool_result events (we want the input, not the output)
+      tests_expected: 5
+
+    - id: p2.2
+      name: "Replay runner"
+      files:
+        - scripts/replay/run_replay.py (new)
+      what: |
+        - Read NDJSON from p2.1 output (or pipe directly)
+        - For each tool call: construct CheckRequest JSON
+        - Shell out to `dl check --json` (or import check logic directly)
+        - Record verdict: allow/block/warn + pattern_matched + check_type
+        - Output: NDJSON with original tool call + verdict appended
+        - Summary stats at end: total, blocked, warned, by check_type
+        - Parallelism: --workers N (default 4) for throughput
+      tests_expected: 4
+
+    - id: p2.3
+      name: "Replay scoring"
+      files:
+        - scripts/replay/score.py (new)
+      what: |
+        - Read replay output from p2.2
+        - If labeled (has expected_verdict field): compute precision/recall/F1
+        - If unlabeled: output frequency analysis (most-triggered patterns, most-blocked files)
+        - Flag likely false positives: files that are blocked but exist in the repo (not secrets)
+        - Flag likely false negatives: files matching *.env, *.pem that were allowed
+        - Output: JSON summary + human-readable table
+      tests_expected: 3
+
+    - id: p2.4
+      name: "Baseline replay run"
+      files: []
+      what: |
+        - Run p2.1 on all 73 session JSONLs
+        - Pipe through p2.2 with current check engine config
+        - Run p2.3 to produce baseline metrics
+        - Save output as scripts/replay/baselines/2026-03-baseline.json
+        - This becomes the regression anchor: future changes must not regress
+
+# -----------------------------------------------------------------------------
+# PHASE 3: Planted-Defect Suite (Tier 2)
+# Structured repo with known defects. Run checkpoint gates. Assert results.
+# Uses Harbor from deepagents for sandbox management.
+# -----------------------------------------------------------------------------
+phase_3:
+  name: "Planted-Defect Regression Suite"
+  rationale: >
+    Tier 2 checkpoint gates (semgrep, gitleaks, test runner) need integration
+    testing with real git repos. Harbor provides Docker sandbox lifecycle.
+    Build a defect corpus, run gates, assert expected outcomes.
+  estimated_effort: "3-4 sessions"
+  depends_on: [p0.2]  # need checkpoint fixes first
+
+  steps:
+    - id: p3.1
+      name: "Install Harbor + create test wrapper"
+      files:
+        - tests/tier2/conftest.py (new)
+        - tests/tier2/harbor_wrapper.py (new)
+        - pyproject.toml
+      what: |
+        - pip install deepagents-harbor (or vendor if not on PyPI yet)
+        - If Harbor not available as standalone: use Docker SDK directly (docker-py)
+        - Fallback: plain pytest + tmp_path fixtures with git init
+        - Write AmbientLayerWrapper(BaseAgent) or equivalent pytest fixture:
+          - setup(): git init, add files, stage changes
+          - run(): invoke `dl checkpoint` or POST /checkpoint
+          - score(): compare gate results to expected
+        - Docker image: ubuntu:24.04 + semgrep + gitleaks + dl binary
+      tests_expected: 2
+
+    - id: p3.2
+      name: "Defect corpus"
+      files:
+        - tests/tier2/corpus/ (new directory)
+      what: |
+        Create test scenarios as directories, each with:
+        - files/: the files to add to the repo
+        - expected.yaml: which gates should pass/fail and why
+
+        Scenarios:
+        - has_leaked_aws_key/: AWS key in .env → secrets gate FAIL
+        - has_leaked_github_pat/: ghp_ token in config.py → secrets gate FAIL
+        - has_sql_injection/: raw SQL in handler.py → semgrep gate FAIL
+        - has_hardcoded_password/: password in settings.yaml → secrets gate FAIL
+        - has_xss_vulnerability/: innerHTML in template → semgrep gate FAIL
+        - clean_python_project/: valid code + passing tests → ALL gates PASS
+        - clean_rust_project/: valid code + passing tests → ALL gates PASS
+        - missing_tests/: code with no test file → sanity gate FAIL (if test_command set)
+        - has_private_key/: RSA key in repo → secrets gate FAIL
+        - has_db_connection_string/: postgres://user:pass@host → secrets gate FAIL
+        - commented_secret/: secret in a comment line → secrets gate PASS (skip comments)
+        - placeholder_secret/: YOUR_API_KEY_HERE → secrets gate PASS (skip placeholders)
+      tests_expected: 12
+
+    - id: p3.3
+      name: "Gate assertion framework"
+      files:
+        - tests/tier2/test_checkpoint_gates.py (new)
+      what: |
+        - pytest parametrize over corpus directories
+        - For each scenario:
+          1. Create temp git repo
+          2. Copy files from corpus
+          3. git add + stage
+          4. Run `dl checkpoint --json` (or invoke checkpoint logic directly)
+          5. Parse gate results JSON
+          6. Assert each gate result matches expected.yaml
+        - Track: gate_name, expected_pass, actual_pass, finding_count
+        - On mismatch: dump full gate output for debugging
+        - Summary: precision/recall per gate type
+      tests_expected: 12
+
+    - id: p3.4
+      name: "CI integration"
+      files:
+        - justfile
+      what: |
+        - Add `just tier2-test` recipe: runs planted-defect suite
+        - Add `just tier2-corpus-validate` recipe: checks corpus YAML schema
+        - Consider: run in CI on every daemon change
+
+# -----------------------------------------------------------------------------
+# PHASE 4: Per-Check Feedback
+# Annotate individual check events as correct/false-positive/missed.
+# Enables precision/recall tracking over time.
+# -----------------------------------------------------------------------------
+phase_4:
+  name: "Per-Check Feedback Loop"
+  rationale: >
+    Shadow mode and replay produce unlabeled data. Per-check feedback turns
+    it into labeled data. With labels, you can compute precision/recall per
+    check type and track regressions over time.
+  estimated_effort: "1-2 sessions"
+  depends_on: [p1.2, p2.2]  # need shadow verdicts and replay output
+
+  steps:
+    - id: p4.1
+      name: "dl feedback command"
+      files:
+        - daemon/src/feedback.rs (new)
+        - daemon/src/cli.rs
+        - daemon/src/main.rs
+      what: |
+        - `dl feedback <event-id> correct|false-positive|missed [--notes "..."]`
+        - Reads event from JSONL event log by ID (timestamp-based or sequential)
+        - Writes feedback to /tmp/dev-loop/feedback/<event-id>.yaml
+        - Fields: event_id, label, notes, timestamp, check_type, pattern_matched
+        - `dl feedback --list` shows recent unlabeled events for review
+        - `dl feedback --stats` shows labeled count, FP rate, FN rate per check type
+      tests_expected: 5
+
+    - id: p4.2
+      name: "Feedback aggregation + scoring"
+      files:
+        - scripts/feedback/score.py (new)
+      what: |
+        - Read all feedback YAML files
+        - Group by check_type (deny_list, dangerous_ops, secrets)
+        - Compute per-type: true_positive, false_positive, false_negative, precision, recall, F1
+        - Output: JSON summary + markdown table
+        - Track over time: append to scripts/feedback/history.jsonl
+        - Detect regressions: if F1 drops >5% from previous run, print warning
+      tests_expected: 3
+
+    - id: p4.3
+      name: "Feedback-driven pattern tuning"
+      files:
+        - scripts/feedback/suggest_tuning.py (new)
+      what: |
+        - Read feedback data
+        - For false positives: suggest remove_patterns or allow_patterns additions
+        - For false negatives: suggest extra_patterns additions
+        - Output: suggested .devloop.yaml diff
+        - User reviews and applies manually (no auto-apply)
+      tests_expected: 2
+
+# -----------------------------------------------------------------------------
+# PHASE 5: Continuous Calibration Pipeline
+# Tie it all together: shadow → replay → score → tune → regress.
+# -----------------------------------------------------------------------------
+phase_5:
+  name: "Continuous Calibration Pipeline"
+  rationale: >
+    Individual tools are useful. A pipeline that runs them automatically on
+    a schedule turns calibration from a manual chore into a continuous signal.
+  estimated_effort: "1 session"
+  depends_on: [p1.3, p2.3, p3.3, p4.2]
+
+  steps:
+    - id: p5.1
+      name: "Calibration pipeline script"
+      files:
+        - scripts/calibrate.sh (new)
+        - justfile
+      what: |
+        - `just calibrate` runs the full pipeline:
+          1. dl shadow-report --last 168 --csv > /tmp/shadow.csv
+          2. python scripts/replay/run_replay.py --sessions ~/.claude/projects/-home-musicofhel/*.jsonl
+          3. python scripts/replay/score.py < replay_output.ndjson
+          4. pytest tests/tier2/ --tb=short
+          5. python scripts/feedback/score.py
+          6. Aggregate all scores into a single calibration report
+        - Output: docs/calibration/YYYY-MM-DD.md (auto-generated)
+        - Exit 1 if any regression detected (F1 drop, new FPs, gate failure on clean code)
+      tests_expected: 0  # integration script, tested by running it
+
+    - id: p5.2
+      name: "Calibration dashboard in OpenObserve"
+      files:
+        - config/dashboards/calibration.json (new)
+        - scripts/import-dashboards.py
+      what: |
+        - New dashboard: "Ambient Layer Calibration"
+        - Panels: shadow verdict distribution, replay precision/recall over time,
+          planted-defect pass rate, feedback label distribution
+        - Import via existing `just stack-import`
+      tests_expected: 0
+
+# =============================================================================
+# TOOL WISHLIST: 10 tools that would be extremely useful
+# =============================================================================
+# These either don't exist or aren't in the knowledge graph. Building or
+# finding them would significantly accelerate calibration work.
+# =============================================================================
+
+tool_wishlist:
+
+  - id: t1
+    name: "Check Engine Fuzzer"
+    category: "testing"
+    exists: false
+    description: >
+      Property-based test generator (like Hypothesis/proptest) specifically
+      for the check engine. Generates random file paths, bash commands, and
+      file contents. Asserts invariants: no panic, deterministic output,
+      allow_patterns always override, remove_patterns always subtract.
+      Would catch edge cases in regex patterns (Unicode, newlines, extremely
+      long strings, null bytes).
+    value: >
+      The 15 deny patterns, 25 dangerous ops, and 15 secret patterns were
+      hand-written. Nobody has thrown random input at them. A fuzzer would
+      find regex catastrophic backtracking, unexpected matches on benign
+      input, and misses on malicious input within hours.
+    implementation: "Rust proptest crate, ~200 lines of generators + invariants"
+
+  - id: t2
+    name: "Hook Protocol Conformance Tester"
+    category: "testing"
+    exists: false
+    description: >
+      A test harness that simulates Claude Code's hook protocol: sends
+      PreToolUse/PostToolUse/SessionStart/SessionEnd/Stop/PreCompact JSON
+      on stdin, reads exit code + stdout JSON, asserts conformance. Tests
+      the contract between Claude Code and the hook binary without needing
+      Claude Code running.
+    value: >
+      The hook layer has 1 test (worktree detection). The entire stdin→parse→
+      check→verdict→stdout pipeline is untested. This is the most critical
+      integration boundary in the system.
+    implementation: "Rust integration test binary or Python subprocess wrapper, ~300 lines"
+
+  - id: t3
+    name: "Checkpoint Gate Mock Server"
+    category: "testing"
+    exists: false
+    description: >
+      A mock HTTP/CLI server that pretends to be semgrep, gitleaks, and a
+      test runner. Returns configurable outputs (findings, clean, timeout,
+      crash). Lets you test checkpoint gate logic without installing the
+      real tools. Also tests the fail-open/fail-closed behavior.
+    value: >
+      Checkpoint gates have zero integration tests because they depend on
+      external binaries. A mock server decouples gate logic from tool
+      installation. Harbor's sandbox approach is complementary (tests with
+      real tools), but mocks are faster for unit-level gate testing.
+    implementation: "Shell scripts or Python HTTP server, ~150 lines per mock tool"
+
+  - id: t4
+    name: "OTel Span Assertion Library"
+    category: "testing"
+    exists: false  # nothing in knowledge graph
+    description: >
+      A test utility that captures OTel spans emitted by the daemon and
+      asserts on their structure: span names, attribute values, parent-child
+      relationships, timing. Like snapshot testing but for traces.
+    value: >
+      OTel export has zero tests. The span JSON structure is hand-built
+      (not using an SDK). Any change to span attributes, naming, or
+      hierarchy breaks downstream dashboards/alerts silently. Span
+      assertions catch this at test time.
+    implementation: "Rust test helper that intercepts export_spans(), ~200 lines"
+
+  - id: t5
+    name: "Event Log Replay + Diff Tool"
+    category: "analysis"
+    exists: false
+    description: >
+      Reads two JSONL event logs (before/after a config change), diffs the
+      verdicts. Shows: new blocks (didn't block before, blocks now), removed
+      blocks (blocked before, allows now), unchanged. Essentially a "what
+      would change if I deploy this config" preview.
+    value: >
+      Config changes (adding/removing patterns) are blind today. You change
+      the config and hope for the best. This tool lets you preview the
+      impact of a config change against historical data before deploying.
+    implementation: "Python script, ~150 lines. Reads two NDJSON files, joins on event key, diffs verdicts."
+
+  - id: t6
+    name: "Secret Pattern Benchmark Corpus"
+    category: "data"
+    exists: false  # no standard corpus in knowledge graph
+    description: >
+      A curated dataset of 500+ real-world secret patterns (API keys, tokens,
+      passwords, connection strings) from public leak databases (TruffleHog's
+      test fixtures, gitleaks test corpus, GitHub's secret scanning patterns).
+      Plus 500+ benign strings that look like secrets but aren't (base64
+      encoded content, UUIDs, hash digests, long config values).
+    value: >
+      The secret scanner has 12 tests with hand-written examples. A real
+      benchmark corpus measures precision/recall against the full diversity
+      of secret formats. TruffleHog and gitleaks both publish their test
+      fixtures — this is a curation + normalization task, not creation.
+    implementation: "YAML/JSON corpus, ~1000 entries. Collect from trufflehog/gitleaks test dirs."
+
+  - id: t7
+    name: "Dangerous Command Taxonomy + Corpus"
+    category: "data"
+    exists: false
+    description: >
+      A structured taxonomy of dangerous shell commands organized by risk
+      category (destructive, exfiltration, privilege escalation, persistence,
+      network, supply chain). Each category has 50+ real-world examples from
+      CTF writeups, incident reports, and red team playbooks. Plus 200+
+      benign commands that trigger false positives (legitimate rm, curl for
+      APIs, docker operations).
+    value: >
+      The 25 dangerous ops patterns were derived from one source (Gate 2.5).
+      A taxonomy reveals gaps: there are probably entire categories of
+      dangerous commands not covered (e.g., crontab manipulation, iptables
+      changes, systemctl operations, pip install from URL).
+    implementation: "YAML corpus + category hierarchy, ~500 entries. Research task."
+
+  - id: t8
+    name: "Config Change Impact Simulator"
+    category: "tooling"
+    exists: false
+    description: >
+      Given a proposed .devloop.yaml change, replays all historical events
+      through the check engine with both old and new config, and reports
+      the diff in verdicts. Combines the replay harness (Phase 2) with the
+      event log diff tool (t5) into a single "what-if" command.
+      `dl config-impact --proposed changes.yaml --events /tmp/dev-loop/events.jsonl`
+    value: >
+      Makes config changes safe and predictable. Instead of "change and pray",
+      you see exactly which past events would have been affected.
+    implementation: "Rust subcommand or Python script. Depends on Phase 2 replay harness. ~200 lines."
+
+  - id: t9
+    name: "Ambient Layer Health Monitor"
+    category: "observability"
+    exists: false
+    description: >
+      A persistent background check that monitors the ambient layer itself:
+      - Is the daemon actually running and responsive? (not just PID exists)
+      - Are hooks installed and firing? (check last event timestamp)
+      - Are external tools available? (semgrep, gitleaks versions)
+      - Is OTel export succeeding? (check last successful export timestamp)
+      - Is event log growing? (check file size delta)
+      - Are there stale overrides or sessions?
+      Outputs a health score and alerts via OpenObserve if degraded.
+    value: >
+      The system has many silent failure modes (Phase 0). A health monitor
+      catches them before the user discovers their guardrails were off.
+      Like a "dead man's switch" for the ambient layer itself.
+    implementation: "Rust subcommand `dl health` + cron job or systemd timer, ~300 lines."
+
+  - id: t10
+    name: "Cross-Repo Pattern Sync"
+    category: "config management"
+    exists: false
+    description: >
+      Manages .devloop.yaml configs across multiple repos from a central
+      registry. Detects drift (repo config diverged from template), suggests
+      updates, and can push changes. Like fleet management for ambient configs.
+      `dl config-sync --registry ~/dev-loop/config/repo-templates/`
+    value: >
+      With 3+ repos (dev-loop, prompt-bench, omniswipe-backend), each with
+      its own .devloop.yaml, keeping patterns consistent is manual. A sync
+      tool ensures all repos get new patterns when the global config evolves.
+    implementation: "Rust subcommand, ~200 lines. Diff per-repo vs template, report drift."
+
+# =============================================================================
+# EXECUTION ORDER
+# =============================================================================
+execution_order:
+  - phase: 0
+    name: "Fix Silent Failures"
+    steps: [p0.1, p0.2, p0.3, p0.4]
+    gate: "cargo test passes, dl status shows dropped_events=0"
+
+  - phase: 1
+    name: "Shadow Mode"
+    steps: [p1.1, p1.2, p1.3]
+    gate: "dl shadow-report runs, shows verdicts from a test session"
+
+  - phase: 2
+    name: "Replay Harness"
+    steps: [p2.1, p2.2, p2.3, p2.4]
+    gate: "Baseline replay run produces precision/recall numbers"
+
+  - phase: 3
+    name: "Planted-Defect Suite"
+    steps: [p3.1, p3.2, p3.3, p3.4]
+    gate: "just tier2-test passes, 12 scenarios green"
+
+  - phase: 4
+    name: "Per-Check Feedback"
+    steps: [p4.1, p4.2, p4.3]
+    gate: "dl feedback --stats shows labeled data, computes F1"
+
+  - phase: 5
+    name: "Continuous Pipeline"
+    steps: [p5.1, p5.2]
+    gate: "just calibrate produces dated report, dashboard visible in OO"
+
+# =============================================================================
+# METRICS — What "works extremely well" means, quantified
+# =============================================================================
+success_metrics:
+  tier1_precision: ">= 0.95"    # less than 5% false positive rate
+  tier1_recall: ">= 0.90"       # catches 90%+ of real issues
+  tier2_gate_accuracy: "1.0"     # planted defects: 100% correct gate results
+  otel_export_success: ">= 0.99" # less than 1% span loss
+  event_log_loss: "0"            # zero dropped events under normal load
+  shadow_to_enforce_time: "<= 7 days"  # shadow mode validates within a week
+  replay_corpus_size: ">= 10000 tool calls"  # enough data for statistical significance
+  feedback_labels: ">= 200"     # enough labeled events for meaningful P/R

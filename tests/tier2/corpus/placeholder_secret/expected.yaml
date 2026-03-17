@@ -1,0 +1,6 @@
+description: "Placeholder secrets (YOUR_KEY_HERE) - should pass"
+expected_gates:
+  secrets:
+    passed: true
+  semgrep:
+    passed: true

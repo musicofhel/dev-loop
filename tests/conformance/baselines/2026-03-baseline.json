@@ -1,0 +1,636 @@
+[
+  {
+    "name": "deny_list: .env file",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .env.local file",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .env.production nested",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .key file",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .pem file",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .p12 file",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .pfx file",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: credentials.json",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: credentials.yaml nested",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: file with 'secret' in name",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: my_secret_key",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .aws/credentials",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .ssh/id_rsa deep path",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .aws/config deep path",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .keystore",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .jks",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .netrc",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .npmrc",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list: .pypirc",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "deny_list_allow: normal Rust source",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "deny_list_allow: package.json",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "deny_list_allow: README.md",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "deny_list_allow: Cargo.toml",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "deny_list_allow: .gitignore",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "deny_list_allow: config.ts (not credentials)",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "deny_list_allow: CLAUDE.md",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "deny_list_allow: .env.example (docs)",
+    "status": "skip",
+    "reason": "Known FP \u2014 .env.* pattern matches .env.example.md. Fix: add to allow_patterns in config."
+  },
+  {
+    "name": "deny_list_allow: keystore.ts (code, not actual keystore)",
+    "status": "skip",
+    "reason": "Known FP \u2014 *.keystore matches keystore.ts extension mismatch, but only if the file ends with .keystore"
+  },
+  {
+    "name": "deny_list_allow: Edit tool on normal file",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_block: rm -rf /",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_block: rm -fr /tmp/stuff",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_block: rm -rf --no-preserve-root /",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_block: write to block device",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_block: mkfs",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_block: dd to device",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_block: DROP TABLE",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_block: DROP DATABASE",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_block: TRUNCATE TABLE",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_block: sudo rm",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "dangerous_ops_warn: git push --force",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: git push -f",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: git reset --hard",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: git clean -f",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: git checkout -- .",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: git branch -D",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: DELETE FROM",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: ALTER TABLE DROP",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: kill -9",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: chmod 777",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: npm publish",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: cargo publish",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: curl | sh",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: curl | sudo bash",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_warn: wget | sh",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "dangerous_ops_allow: safe git push",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: git status",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: cargo build",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: npm test",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: rm single file (no -rf)",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: echo hello",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: ls -la",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: git log",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: curl without pipe",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: docker build",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: pip install package",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: SELECT query",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: git commit",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: git diff",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "dangerous_ops_allow: chmod 644",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "commit_detect: git commit -m",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "commit_detect: git commit --amend",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "commit_detect: not a commit (git push)",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "commit_detect: not a commit (git status)",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "unknown_tool: Read tool",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "unknown_tool: Glob tool",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "unknown_tool: Grep tool",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "edge: empty file_path",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "edge: empty command",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "edge: missing tool_input",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "edge: very long file path",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "edge: path with spaces",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "edge: absolute path to .env",
+    "status": "pass",
+    "expected": "block",
+    "actual": "block"
+  },
+  {
+    "name": "secrets: API key assignment",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets: AWS access key",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets: GitHub PAT",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets: OpenAI key",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets: Anthropic key",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets: Slack bot token",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets: private key header",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets: DB connection string with password",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets: password in config",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets: high-entropy secret assignment",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "secrets_allow: normal Rust code",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: commented API key",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: JS commented API key",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: placeholder with your-",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: placeholder with xxx",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: placeholder with EXAMPLE",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: placeholder with redacted",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: normal JSON config",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: normal HTML",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: Edit tool with safe new_string",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "secrets_allow: Edit tool with secret in new_string",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "edge: empty content",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  },
+  {
+    "name": "edge: multiline with one secret line",
+    "status": "pass",
+    "expected": "warn",
+    "actual": "warn"
+  },
+  {
+    "name": "edge: Bash tool (no secrets check in pre)",
+    "status": "pass",
+    "expected": "allow",
+    "actual": "allow"
+  }
+]

@@ -90,6 +90,32 @@ fn fire_event_to_daemon(session_id: &str, tool_name: &str, action: &str, check_t
     let _ = post_to_daemon("/event", &body);
 }
 
+/// Log a shadow verdict to the daemon's event log.
+/// In shadow mode, checks run but never block — verdicts are recorded for analysis.
+fn fire_shadow_verdict(
+    session_id: &str,
+    tool_name: &str,
+    verdict: &str,
+    check_type: &str,
+    pattern_matched: Option<&str>,
+    reason: Option<&str>,
+    duration_us: u64,
+) {
+    let body = serde_json::json!({
+        "type": "shadow_verdict",
+        "session_id": session_id,
+        "tool": tool_name,
+        "verdict": verdict,
+        "check": check_type,
+        "pattern": pattern_matched,
+        "reason": reason,
+        "us": duration_us,
+    })
+    .to_string();
+
+    let _ = post_to_daemon("/event", &body);
+}
+
 /// Outcome of a checkpoint call to the daemon.
 enum CheckpointOutcome {
     /// All gates passed; trailer to inject.
@@ -219,10 +245,11 @@ pub fn pre_tool_use() {
 
     // Load merged config (global + per-repo) and build check engine
     let merged = config::load_merged(Some(cwd));
-    if !merged.enabled {
+    if !merged.enabled || merged.ambient_mode == "disabled" {
         std::process::exit(0);
     }
 
+    let shadow = merged.ambient_mode == "shadow";
     let engine = CheckEngine::from_config(&merged);
 
     // Build check request from hook input
@@ -260,6 +287,20 @@ pub fn pre_tool_use() {
         let action_str = format!("{:?}", result.action).to_lowercase();
         let check_type = result.check_type.as_deref().unwrap_or("unknown");
         fire_event_to_daemon(sid, tool_name, &action_str, check_type, result.duration_us);
+    }
+
+    // Shadow mode: log verdict but always allow
+    if shadow {
+        if result.action != Action::Allow {
+            if let Some(ref sid) = request.session_id {
+                let verdict = format!("{:?}", result.action).to_lowercase();
+                let check_type = result.check_type.as_deref().unwrap_or("unknown");
+                let reason = result.reason.as_deref();
+                fire_shadow_verdict(sid, tool_name, &verdict, check_type, None, reason, result.duration_us);
+            }
+        }
+        // Shadow mode: always allow, no output
+        return;
     }
 
     // Tier 2: If this is a git commit, run checkpoint gates
@@ -355,10 +396,11 @@ pub fn post_tool_use() {
 
     // Load merged config and build check engine
     let merged = config::load_merged(Some(cwd));
-    if !merged.enabled {
+    if !merged.enabled || merged.ambient_mode == "disabled" {
         std::process::exit(0);
     }
 
+    let shadow = merged.ambient_mode == "shadow";
     let engine = CheckEngine::from_config(&merged);
 
     // Check file allowlist before secret scanning
@@ -398,6 +440,18 @@ pub fn post_tool_use() {
         let action_str = format!("{:?}", result.action).to_lowercase();
         let check_type = result.check_type.as_deref().unwrap_or("unknown");
         fire_event_to_daemon(sid, tool_name, &action_str, check_type, result.duration_us);
+    }
+
+    // Shadow mode: log verdict but don't warn user
+    if shadow {
+        if result.action == Action::Warn {
+            if let Some(ref sid) = request.session_id {
+                let check_type = result.check_type.as_deref().unwrap_or("unknown");
+                let reason = result.reason.as_deref();
+                fire_shadow_verdict(sid, tool_name, "warn", check_type, None, reason, result.duration_us);
+            }
+        }
+        return;
     }
 
     if result.action == Action::Warn {
@@ -460,6 +514,11 @@ pub fn session_start() {
     crate::rules_md::generate(&merged);
 
     // Differentiated SessionStart: check for recent handoff
+    let shadow_note = if merged.ambient_mode == "shadow" {
+        " (SHADOW MODE — logging only, not blocking)"
+    } else {
+        ""
+    };
     if let Some(handoff) = continuity::find_recent_handoff(cwd) {
         // Resume/compact scenario: inject full handoff state
         let context = continuity::format_for_injection(&handoff);
@@ -467,19 +526,24 @@ pub fn session_start() {
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
                 "additionalContext": format!(
-                    "dev-loop ambient active (resumed). Handoff from previous session:\n{context}"
+                    "dev-loop ambient active{shadow_note} (resumed). Handoff from previous session:\n{context}"
                 )
             }
         });
         println!("{output}");
     } else {
         // Fresh start: get last session stats from daemon
+        let mode_tag = if merged.ambient_mode == "shadow" {
+            " (SHADOW MODE — logging only, not blocking)"
+        } else {
+            ""
+        };
         let notification = match get_last_session_summary() {
             Some(summary) => format!(
-                "dev-loop ambient active. Last session: {} checks, {} blocks.",
+                "dev-loop ambient active{mode_tag}. Last session: {} checks, {} blocks.",
                 summary.checks, summary.blocks
             ),
-            None => "dev-loop ambient active.".to_string(),
+            None => format!("dev-loop ambient active{mode_tag}."),
         };
         let output = serde_json::json!({
             "hookSpecificOutput": {

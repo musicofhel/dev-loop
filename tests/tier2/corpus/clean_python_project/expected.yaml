@@ -1,0 +1,8 @@
+description: "Clean Python project with passing tests - all gates should pass"
+expected_gates:
+  sanity:
+    passed: true
+  semgrep:
+    passed: true
+  secrets:
+    passed: true

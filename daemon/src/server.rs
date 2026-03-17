@@ -124,13 +124,21 @@ fn handle_status(state: &ServerState) -> Response<Full<Bytes>> {
         })
         .collect();
 
+    let ambient_mode = {
+        let config = state.config.blocking_read();
+        config.ambient_mode.clone()
+    };
+
     let body = serde_json::json!({
         "status": "running",
         "uptime_s": uptime.num_seconds(),
         "started_at": state.started_at.to_rfc3339(),
         "pid": std::process::id(),
+        "ambient_mode": ambient_mode,
         "active_sessions": active_sessions.len(),
         "sessions": active_sessions,
+        "events_logged": state.event_log.events_logged(),
+        "events_dropped": state.event_log.events_dropped(),
     })
     .to_string();
 
@@ -434,7 +442,16 @@ async fn handle_session_end(
             let spans = otel::build_session_spans(info, outcome.as_deref());
             let span_count = spans.len();
             let config = state.config.read().await;
-            otel::export_spans(&config.observability, spans);
+            if let Err(e) = otel::export_spans(&config.observability, spans) {
+                tracing::error!("OTel span export failed for session {session_id}: {e}");
+                let err_event = Event::new("otel_export_error")
+                    .with_data(serde_json::json!({
+                        "session_id": session_id,
+                        "error": e,
+                    }))
+                    .with_session(session_id.to_string());
+                state.event_log.log(err_event);
+            }
 
             (duration, checks, span_count)
         }
@@ -513,23 +530,41 @@ async fn handle_checkpoint(
         merged.checkpoint.gates
     );
 
-    // Run checkpoint in a blocking task (gates shell out to external tools)
+    // Run checkpoint in a blocking task with overall timeout
     let checkpoint_config = merged.checkpoint.clone();
+    let timeout_s = checkpoint_config.gate_timeout_s;
     let cwd_owned = cwd.to_string();
-    let result = tokio::task::spawn_blocking(move || {
-        checkpoint::run_checkpoint(&cwd_owned, &checkpoint_config)
-    })
-    .await
-    .unwrap_or_else(|e| checkpoint::CheckpointResult {
-        passed: true, // fail-open on panic
-        gates_run: 0,
-        gates_passed: 0,
-        gates_failed: 0,
-        first_failure: Some(format!("checkpoint task panicked: {e}")),
-        trailer: None,
-        gate_results: vec![],
-        duration_ms: 0,
-    });
+    let result = tokio::time::timeout(
+        tokio::time::Duration::from_secs(timeout_s),
+        tokio::task::spawn_blocking(move || {
+            checkpoint::run_checkpoint(&cwd_owned, &checkpoint_config)
+        }),
+    )
+    .await;
+
+    let result = match result {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => checkpoint::CheckpointResult {
+            passed: true, // fail-open on panic
+            gates_run: 0,
+            gates_passed: 0,
+            gates_failed: 0,
+            first_failure: Some(format!("checkpoint task panicked: {e}")),
+            trailer: None,
+            gate_results: vec![],
+            duration_ms: 0,
+        },
+        Err(_) => checkpoint::CheckpointResult {
+            passed: false, // timeout = fail (don't pass uncommitted code)
+            gates_run: 0,
+            gates_passed: 0,
+            gates_failed: 1,
+            first_failure: Some(format!("checkpoint timed out after {timeout_s}s")),
+            trailer: None,
+            gate_results: vec![],
+            duration_ms: timeout_s * 1000,
+        },
+    };
 
     info!(
         "Checkpoint result: passed={}, gates={}/{}, duration={}ms",

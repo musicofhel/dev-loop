@@ -68,8 +68,8 @@ pub fn run_checkpoint(cwd: &str, config: &CheckpointConfig) -> CheckpointResult 
     for gate_name in active_gates {
         let result = match gate_name.as_str() {
             "sanity" => run_sanity_gate(cwd, config),
-            "semgrep" => run_semgrep_gate(cwd, &staged_files),
-            "secrets" => run_secrets_gate(cwd),
+            "semgrep" => run_semgrep_gate(cwd, &staged_files, config),
+            "secrets" => run_secrets_gate(cwd, config),
             "atdd" => run_atdd_gate(cwd, config, &staged_files),
             "review" => {
                 // Review gate is optional / deferred
@@ -203,13 +203,19 @@ fn run_sanity_gate(cwd: &str, config: &CheckpointConfig) -> GateResult {
                 duration_ms: start.elapsed().as_millis() as u64,
             }
         }
-        Err(e) => GateResult {
-            gate: "sanity".into(),
-            passed: true, // fail-open if test runner can't start
-            reason: Some(format!("could not run test command: {e}")),
-            findings: vec![],
-            duration_ms: start.elapsed().as_millis() as u64,
-        },
+        Err(e) => {
+            let passed = config.fail_mode != "closed";
+            GateResult {
+                gate: "sanity".into(),
+                passed,
+                reason: Some(format!(
+                    "could not run test command: {e} (fail_mode={})",
+                    config.fail_mode
+                )),
+                findings: vec![],
+                duration_ms: start.elapsed().as_millis() as u64,
+            }
+        }
     }
 }
 
@@ -231,24 +237,37 @@ fn detect_test_command(cwd: &str) -> Option<&'static str> {
 
 // ── Gate: Semgrep (SAST) ────────────────────────────────────────
 
-fn run_semgrep_gate(cwd: &str, staged_files: &[String]) -> GateResult {
+fn run_semgrep_gate(cwd: &str, staged_files: &[String], config: &CheckpointConfig) -> GateResult {
     let start = Instant::now();
 
     // Check if semgrep is available
     if !is_tool_available("semgrep") {
+        let passed = config.fail_mode != "closed";
         return GateResult {
             gate: "semgrep".into(),
-            passed: true,
-            reason: Some("semgrep not installed, skipped".into()),
+            passed,
+            reason: Some(if passed {
+                "semgrep not installed, skipped (fail_mode=open)".into()
+            } else {
+                "semgrep not installed (fail_mode=closed)".into()
+            }),
             findings: vec![],
             duration_ms: start.elapsed().as_millis() as u64,
         };
     }
 
-    // Run semgrep on staged files with auto config
+    // Run semgrep on staged files with auto config + any extra rule configs
     let mut cmd = Command::new("semgrep");
     cmd.args(["--config", "auto", "--json", "--quiet", "--no-git-ignore"])
         .current_dir(cwd);
+
+    // Add extra semgrep config directories (e.g. ai-best-practices rules)
+    for extra_config in &config.semgrep_extra_configs {
+        let path = Path::new(extra_config);
+        if path.exists() {
+            cmd.args(["--config", extra_config]);
+        }
+    }
 
     // Add each staged file as a target
     for file in staged_files {
@@ -286,13 +305,19 @@ fn run_semgrep_gate(cwd: &str, staged_files: &[String]) -> GateResult {
                 }
             }
         }
-        Err(e) => GateResult {
-            gate: "semgrep".into(),
-            passed: true, // fail-open
-            reason: Some(format!("semgrep failed to run: {e}")),
-            findings: vec![],
-            duration_ms: start.elapsed().as_millis() as u64,
-        },
+        Err(e) => {
+            let passed = config.fail_mode != "closed";
+            GateResult {
+                gate: "semgrep".into(),
+                passed,
+                reason: Some(format!(
+                    "semgrep failed to run: {e} (fail_mode={})",
+                    config.fail_mode
+                )),
+                findings: vec![],
+                duration_ms: start.elapsed().as_millis() as u64,
+            }
+        }
     }
 }
 
@@ -336,21 +361,44 @@ fn parse_semgrep_findings(json_str: &str) -> Vec<String> {
 
 // ── Gate: Secrets (gitleaks) ────────────────────────────────────
 
-fn run_secrets_gate(cwd: &str) -> GateResult {
+fn run_secrets_gate(cwd: &str, config: &CheckpointConfig) -> GateResult {
     let start = Instant::now();
 
-    if !is_tool_available("gitleaks") {
+    // Prefer betterleaks, fall back to gitleaks
+    let (tool_name, tool_args) = if is_tool_available("betterleaks") {
+        (
+            "betterleaks",
+            vec!["stdin", "-f", "json", "-r", "-", "--no-banner"],
+        )
+    } else if is_tool_available("gitleaks") {
+        (
+            "gitleaks",
+            vec![
+                "detect",
+                "--pipe",
+                "--report-format",
+                "json",
+                "--report-path",
+                "-",
+                "--no-banner",
+            ],
+        )
+    } else {
+        let passed = config.fail_mode != "closed";
         return GateResult {
             gate: "secrets".into(),
-            passed: true,
-            reason: Some("gitleaks not installed, skipped".into()),
+            passed,
+            reason: Some(if passed {
+                "neither betterleaks nor gitleaks installed, skipped (fail_mode=open)".into()
+            } else {
+                "neither betterleaks nor gitleaks installed (fail_mode=closed)".into()
+            }),
             findings: vec![],
             duration_ms: start.elapsed().as_millis() as u64,
         };
-    }
+    };
 
-    // Run gitleaks on staged changes using --pipe mode:
-    // git diff --cached | gitleaks detect --pipe
+    // Get staged diff
     let git_diff = Command::new("git")
         .args(["diff", "--cached"])
         .current_dir(cwd)
@@ -380,8 +428,8 @@ fn run_secrets_gate(cwd: &str) -> GateResult {
         };
     }
 
-    let mut child = match Command::new("gitleaks")
-        .args(["detect", "--pipe", "--report-format", "json", "--no-banner"])
+    let mut child = match Command::new(tool_name)
+        .args(&tool_args)
         .current_dir(cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -390,17 +438,21 @@ fn run_secrets_gate(cwd: &str) -> GateResult {
     {
         Ok(c) => c,
         Err(e) => {
+            let passed = config.fail_mode != "closed";
             return GateResult {
                 gate: "secrets".into(),
-                passed: true,
-                reason: Some(format!("gitleaks failed to start: {e}")),
+                passed,
+                reason: Some(format!(
+                    "{tool_name} failed to start: {e} (fail_mode={})",
+                    config.fail_mode
+                )),
                 findings: vec![],
                 duration_ms: start.elapsed().as_millis() as u64,
             };
         }
     };
 
-    // Write diff to gitleaks stdin
+    // Write diff to scanner stdin
     if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
         let _ = stdin.write_all(&diff_content);
@@ -410,7 +462,7 @@ fn run_secrets_gate(cwd: &str) -> GateResult {
 
     match output {
         Ok(o) => {
-            // gitleaks exit code 1 = leaks found, 0 = clean
+            // exit code 1 = leaks found, 0 = clean (same for both tools)
             let passed = o.status.success();
             let stdout = String::from_utf8_lossy(&o.stdout);
             let stderr = String::from_utf8_lossy(&o.stderr);
@@ -424,23 +476,33 @@ fn run_secrets_gate(cwd: &str) -> GateResult {
                     duration_ms: start.elapsed().as_millis() as u64,
                 }
             } else {
+                // Both tools produce identical JSON format
                 let findings = parse_gitleaks_findings(&stdout, &stderr);
                 GateResult {
                     gate: "secrets".into(),
                     passed: false,
-                    reason: Some(format!("{} secret(s) detected by gitleaks", findings.len())),
+                    reason: Some(format!(
+                        "{} secret(s) detected by {tool_name}",
+                        findings.len()
+                    )),
                     findings,
                     duration_ms: start.elapsed().as_millis() as u64,
                 }
             }
         }
-        Err(e) => GateResult {
-            gate: "secrets".into(),
-            passed: true, // fail-open
-            reason: Some(format!("gitleaks failed to run: {e}")),
-            findings: vec![],
-            duration_ms: start.elapsed().as_millis() as u64,
-        },
+        Err(e) => {
+            let passed = config.fail_mode != "closed";
+            GateResult {
+                gate: "secrets".into(),
+                passed,
+                reason: Some(format!(
+                    "{tool_name} failed to run: {e} (fail_mode={})",
+                    config.fail_mode
+                )),
+                findings: vec![],
+                duration_ms: start.elapsed().as_millis() as u64,
+            }
+        }
     }
 }
 
