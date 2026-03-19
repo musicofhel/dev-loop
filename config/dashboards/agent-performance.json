@@ -4,39 +4,39 @@
   "panels": [
     {
       "id": 1,
-      "title": "Average Turns Per Run",
-      "type": "metric",
-      "query": "SELECT ROUND(AVG(CAST(runtime_num_turns AS DOUBLE)), 1) as avg_turns FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_num_turns IS NOT NULL AND _timestamp >= NOW() - INTERVAL '7 DAYS'"
+      "title": "Average Turns Per Day",
+      "type": "area",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(CAST(runtime_num_turns AS DOUBLE)), 1) as avg_turns FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_num_turns IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 2,
-      "title": "Average Input Tokens Per Run",
-      "type": "metric",
-      "query": "SELECT ROUND(AVG(CAST(runtime_input_tokens AS DOUBLE)), 0) as avg_input FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_input_tokens IS NOT NULL AND _timestamp >= NOW() - INTERVAL '7 DAYS'"
+      "title": "Average Input Tokens Per Day",
+      "type": "area",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(CAST(runtime_input_tokens AS DOUBLE)), 0) as avg_input FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_input_tokens IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 3,
-      "title": "Average Output Tokens Per Run",
-      "type": "metric",
-      "query": "SELECT ROUND(AVG(CAST(runtime_output_tokens AS DOUBLE)), 0) as avg_output FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_output_tokens IS NOT NULL AND _timestamp >= NOW() - INTERVAL '7 DAYS'"
+      "title": "Average Output Tokens Per Day",
+      "type": "area",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(CAST(runtime_output_tokens AS DOUBLE)), 0) as avg_output FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_output_tokens IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 4,
       "title": "Duration by Persona",
       "type": "bar",
-      "query": "SELECT tb1_persona as persona, ROUND(AVG(duration / 1000000), 1) as avg_seconds FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.phase.persona' AND tb1_persona IS NOT NULL AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY persona ORDER BY avg_seconds DESC"
+      "query": "SELECT tb1_persona as persona, ROUND(AVG(duration / 1000000), 1) as avg_seconds FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.phase.persona' AND tb1_persona IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY persona ORDER BY avg_seconds DESC"
     },
     {
       "id": 5,
       "title": "Runs by Persona",
       "type": "pie",
-      "query": "SELECT tb1_persona as persona, COUNT(*) as runs FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.phase.persona' AND tb1_persona IS NOT NULL AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY persona"
+      "query": "SELECT tb1_persona as persona, COUNT(*) as runs FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.phase.persona' AND tb1_persona IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY persona"
     },
     {
       "id": 6,
       "title": "Token Usage Over Time",
       "type": "line",
-      "query": "SELECT DATE_TRUNC('day', _timestamp) as day, SUM(CAST(runtime_input_tokens AS BIGINT)) as input_tokens, SUM(CAST(runtime_output_tokens AS BIGINT)) as output_tokens FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_input_tokens IS NOT NULL AND _timestamp >= NOW() - INTERVAL '30 DAYS' GROUP BY day ORDER BY day"
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, SUM(CAST(runtime_input_tokens AS BIGINT)) as input_tokens, SUM(CAST(runtime_output_tokens AS BIGINT)) as output_tokens FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_input_tokens IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     }
   ]
 }

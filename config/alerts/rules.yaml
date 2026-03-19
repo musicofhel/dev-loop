@@ -1,6 +1,21 @@
 # OpenObserve alert rules for dev-loop
 # Import these via the OpenObserve API or web UI
 # See: https://openobserve.ai/docs/user-guide/alerts/
+#
+# IMPORTANT — OpenObserve schema notes:
+#
+# 1. _timestamp is Int64 (epoch microseconds), NOT a native Timestamp.
+#    Use:  _timestamp >= CAST(NOW() - INTERVAL '10 MINUTES' AS BIGINT) / 1000
+#    NOT:  _timestamp >= NOW() - INTERVAL '10 MINUTES'
+#
+# 2. Span attributes are FLATTENED: dots become underscores, no bracket syntax.
+#    OTel attribute  "gates.first_failure"  → column  gates_first_failure
+#    OTel attribute  "gate.status"          → column  gate_status
+#    NOT: attributes_string['gate.status']
+#
+# 3. Columns only exist after the first span with that attribute is ingested.
+#    Alerts referencing missing columns will produce "field not found" errors
+#    until real pipeline spans flow through.
 
 alerts:
   - name: gate_failure_spike
@@ -12,8 +27,8 @@ alerts:
         FROM default
         WHERE service_name = 'dev-loop'
           AND operation_name = 'gates.run_all'
-          AND attributes_string['gates.first_failure'] IS NOT NULL
-          AND _timestamp >= NOW() - INTERVAL '10 MINUTES'
+          AND gates_first_failure IS NOT NULL
+          AND _timestamp >= CAST(NOW() - INTERVAL '10 MINUTES' AS BIGINT) / 1000
       threshold: 3
       operator: ">="
     frequency_minutes: 5
@@ -24,14 +39,14 @@ alerts:
     stream: default
     condition:
       sql: >
-        SELECT attributes_string['issue.id'] as issue_id,
+        SELECT issue_id,
                MAX(_timestamp) as last_heartbeat
         FROM default
         WHERE service_name = 'dev-loop'
           AND operation_name = 'runtime.heartbeat'
-          AND _timestamp >= NOW() - INTERVAL '30 MINUTES'
+          AND _timestamp >= CAST(NOW() - INTERVAL '30 MINUTES' AS BIGINT) / 1000
         GROUP BY issue_id
-        HAVING MAX(_timestamp) < NOW() - INTERVAL '5 MINUTES'
+        HAVING MAX(_timestamp) < CAST(NOW() - INTERVAL '5 MINUTES' AS BIGINT) / 1000
       threshold: 1
       operator: ">="
     frequency_minutes: 2
@@ -43,12 +58,12 @@ alerts:
     condition:
       sql: >
         SELECT trace_id,
-               CAST(attributes_int64['runtime.num_turns'] AS INT) as turns
+               runtime_num_turns as turns
         FROM default
         WHERE service_name = 'dev-loop'
           AND operation_name = 'runtime.spawn_agent'
-          AND CAST(attributes_int64['runtime.num_turns'] AS INT) > 20
-          AND _timestamp >= NOW() - INTERVAL '1 HOUR'
+          AND runtime_num_turns > 20
+          AND _timestamp >= CAST(NOW() - INTERVAL '1 HOUR' AS BIGINT) / 1000
       threshold: 1
       operator: ">="
     frequency_minutes: 10
@@ -63,7 +78,7 @@ alerts:
         FROM default
         WHERE service_name = 'dev-loop'
           AND operation_name = 'feedback.escalate'
-          AND _timestamp >= NOW() - INTERVAL '1 HOUR'
+          AND _timestamp >= CAST(NOW() - INTERVAL '1 HOUR' AS BIGINT) / 1000
       threshold: 3
       operator: ">="
     frequency_minutes: 15
@@ -78,29 +93,24 @@ alerts:
         FROM default
         WHERE service_name = 'dev-loop'
           AND operation_name = 'gates.gate_3_security'
-          AND attributes_string['gate.status'] = 'fail'
-          AND _timestamp >= NOW() - INTERVAL '1 HOUR'
+          AND gate_status = 'fail'
+          AND _timestamp >= CAST(NOW() - INTERVAL '1 HOUR' AS BIGINT) / 1000
       threshold: 1
       operator: ">="
     frequency_minutes: 5
     severity: critical
 
   - name: session_burn_rate
-    description: "Session token consumption exceeds 2x 7-day rolling average"
+    description: "Session consumed >200k tokens — unusually high for a single run"
     stream: default
     condition:
       sql: >
         SELECT trace_id,
-               CAST(attributes_int64['session.context.tokens_consumed'] AS INT) as tokens
+               session_context_tokens_consumed as tokens
         FROM default
         WHERE service_name = 'dev-loop'
-          AND CAST(attributes_int64['session.context.tokens_consumed'] AS INT) > (
-            SELECT AVG(CAST(attributes_int64['session.context.tokens_consumed'] AS INT)) * 2
-            FROM default
-            WHERE _timestamp > NOW() - INTERVAL '7 days'
-              AND attributes_int64['session.context.tokens_consumed'] IS NOT NULL
-          )
-          AND _timestamp >= NOW() - INTERVAL '10 MINUTES'
+          AND session_context_tokens_consumed > 200000
+          AND _timestamp >= CAST(NOW() - INTERVAL '10 MINUTES' AS BIGINT) / 1000
       threshold: 1
       operator: ">="
     frequency_minutes: 5
@@ -114,9 +124,9 @@ alerts:
         SELECT COUNT(*) as trigger_count
         FROM default
         WHERE service_name = 'dev-loop'
-          AND (attributes_string['guardrail.action'] = 'block'
-               OR attributes_string['guardrail.action'] = 'warn')
-          AND _timestamp >= NOW() - INTERVAL '1 HOUR'
+          AND (guardrail_action = 'block'
+               OR guardrail_action = 'warn')
+          AND _timestamp >= CAST(NOW() - INTERVAL '1 HOUR' AS BIGINT) / 1000
       threshold: 3
       operator: ">="
     frequency_minutes: 60

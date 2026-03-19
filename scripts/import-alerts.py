@@ -131,11 +131,13 @@ def delete_existing():
         return
     alerts = result if isinstance(result, list) else result.get("list", [])
     for alert in alerts:
-        alert_id = alert.get("id", "")
+        alert_id = alert.get("alert_id", "")
         name = alert.get("name", "?")
         if alert_id:
             _api_v2("DELETE", f"alerts/{alert_id}")
             print(f"  Deleted: {name} ({alert_id})")
+        else:
+            print(f"  Warning: alert '{name}' has no alert_id, cannot delete")
 
 
 def import_alerts(dry_run: bool = False) -> int:

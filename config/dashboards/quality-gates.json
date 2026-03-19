@@ -6,31 +6,31 @@
       "id": 1,
       "title": "Gate Pass/Fail Rates",
       "type": "bar",
-      "query": "SELECT operation_name as gate, SUM(CASE WHEN gate_status = 'pass' THEN 1 ELSE 0 END) as passed, SUM(CASE WHEN gate_status = 'fail' THEN 1 ELSE 0 END) as failed FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY gate"
+      "query": "SELECT operation_name as gate, SUM(CASE WHEN gate_status = 'pass' THEN 1 ELSE 0 END) as passed, SUM(CASE WHEN gate_status = 'fail' THEN 1 ELSE 0 END) as failed FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY gate"
     },
     {
       "id": 2,
       "title": "Average Gate Duration (ms)",
       "type": "bar",
-      "query": "SELECT operation_name as gate, ROUND(AVG(CAST(gate_duration_ms AS DOUBLE)), 0) as avg_ms FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND gate_duration_ms IS NOT NULL AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY gate ORDER BY avg_ms DESC"
+      "query": "SELECT operation_name as gate, ROUND(AVG(CAST(gate_duration_ms AS DOUBLE)), 0) as avg_ms FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND gate_duration_ms IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY gate ORDER BY avg_ms DESC"
     },
     {
       "id": 3,
       "title": "Security Findings by CWE",
       "type": "bar",
-      "query": "SELECT security_cwe_ids as cwe, COUNT(*) as count FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.gate_3_security' AND security_cwe_ids IS NOT NULL AND _timestamp >= NOW() - INTERVAL '30 DAYS' GROUP BY cwe ORDER BY count DESC"
+      "query": "SELECT security_cwe_ids as cwe, COUNT(*) as count FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.gate_3_security' AND security_cwe_ids IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY cwe ORDER BY count DESC"
     },
     {
       "id": 4,
-      "title": "Secret Scanner Catches",
-      "type": "metric",
-      "query": "SELECT SUM(CAST(gate_findings_count AS INT)) as total_findings FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.gate_2_secrets' AND gate_status = 'fail' AND _timestamp >= NOW() - INTERVAL '30 DAYS'"
+      "title": "Secret Findings Per Day",
+      "type": "bar",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, SUM(CAST(gate_findings_count AS INT)) as total_findings FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.gate_2_secrets' AND gate_status = 'fail' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 5,
       "title": "Gate Failures Over Time",
       "type": "line",
-      "query": "SELECT DATE_TRUNC('day', _timestamp) as day, operation_name as gate, COUNT(*) as failures FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND gate_status = 'fail' AND _timestamp >= NOW() - INTERVAL '30 DAYS' GROUP BY day, gate ORDER BY day"
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, operation_name as gate, COUNT(*) as failures FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND gate_status = 'fail' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day, gate ORDER BY day"
     }
   ]
 }

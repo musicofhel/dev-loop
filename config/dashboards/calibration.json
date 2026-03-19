@@ -4,51 +4,51 @@
   "panels": [
     {
       "id": 1,
-      "title": "Shadow Verdicts (7d)",
-      "type": "metric",
-      "query": "SELECT COUNT(*) as total FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'shadow_verdict' AND _timestamp >= NOW() - INTERVAL '7 DAYS'"
+      "title": "Shadow Verdicts Per Day",
+      "type": "bar",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, COUNT(*) as total FROM default WHERE service_name = 'dev-loop-ambient' AND operation_name = 'shadow_verdict' AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 2,
-      "title": "Shadow Block Rate",
-      "type": "metric",
-      "query": "SELECT ROUND(100.0 * SUM(CASE WHEN verdict = 'block' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) as block_pct FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'shadow_verdict' AND _timestamp >= NOW() - INTERVAL '7 DAYS'"
+      "title": "Daily Shadow Block Rate (%)",
+      "type": "area",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(100.0 * SUM(CASE WHEN verdict = 'block' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) as block_pct FROM default WHERE service_name = 'dev-loop-ambient' AND operation_name = 'shadow_verdict' AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 3,
       "title": "Check Verdicts by Type",
       "type": "bar",
-      "query": "SELECT check_type, verdict, COUNT(*) as count FROM default WHERE service_name = 'dev-loop-ambient' AND span_name IN ('check', 'shadow_verdict') AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY check_type, verdict ORDER BY count DESC"
+      "query": "SELECT check_type, verdict, COUNT(*) as count FROM default WHERE service_name = 'dev-loop-ambient' AND operation_name IN ('check', 'shadow_verdict') AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY check_type, verdict ORDER BY count DESC"
     },
     {
       "id": 4,
       "title": "Verdict Distribution Over Time",
       "type": "line",
-      "query": "SELECT DATE_TRUNC('hour', _timestamp) as hour, verdict, COUNT(*) as count FROM default WHERE service_name = 'dev-loop-ambient' AND span_name IN ('check', 'shadow_verdict') AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY hour, verdict ORDER BY hour"
+      "query": "SELECT DATE_TRUNC('hour', TO_TIMESTAMP(_timestamp / 1000000)) as hour, verdict, COUNT(*) as count FROM default WHERE service_name = 'dev-loop-ambient' AND operation_name IN ('check', 'shadow_verdict') AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY hour, verdict ORDER BY hour"
     },
     {
       "id": 5,
       "title": "Top Blocked Patterns",
-      "type": "table",
-      "query": "SELECT reason, COUNT(*) as count FROM default WHERE service_name = 'dev-loop-ambient' AND span_name IN ('check', 'shadow_verdict') AND verdict = 'block' AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY reason ORDER BY count DESC LIMIT 20"
+      "type": "bar",
+      "query": "SELECT reason, COUNT(*) as count FROM default WHERE service_name = 'dev-loop-ambient' AND operation_name IN ('check', 'shadow_verdict') AND verdict = 'block' AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY reason ORDER BY count DESC LIMIT 20"
     },
     {
       "id": 6,
       "title": "Replay Block Rate Trend",
       "type": "line",
-      "query": "SELECT DATE_TRUNC('day', _timestamp) as day, ROUND(100.0 * SUM(CASE WHEN verdict = 'block' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) as block_pct FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'replay_verdict' AND _timestamp >= NOW() - INTERVAL '30 DAYS' GROUP BY day ORDER BY day"
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(100.0 * SUM(CASE WHEN verdict = 'block' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) as block_pct FROM default WHERE service_name = 'dev-loop-ambient' AND operation_name = 'replay_verdict' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 7,
       "title": "Sessions by Outcome",
       "type": "pie",
-      "query": "SELECT COALESCE(session_outcome, 'unknown') as outcome, COUNT(DISTINCT trace_id) as sessions FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'session' AND _timestamp >= NOW() - INTERVAL '7 DAYS' GROUP BY outcome"
+      "query": "SELECT COALESCE(session_outcome, 'unknown') as outcome, COUNT(DISTINCT trace_id) as sessions FROM default WHERE service_name = 'dev-loop-ambient' AND operation_name = 'session' AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY outcome"
     },
     {
       "id": 8,
-      "title": "Feedback Labels (cumulative)",
-      "type": "metric",
-      "query": "SELECT COUNT(*) as total_labels FROM default WHERE service_name = 'dev-loop-ambient' AND span_name = 'feedback' AND _timestamp >= NOW() - INTERVAL '30 DAYS'"
+      "title": "Feedback Labels Per Day",
+      "type": "bar",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, COUNT(*) as total_labels FROM default WHERE service_name = 'dev-loop-ambient' AND operation_name = 'feedback' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     }
   ]
 }
