@@ -11,6 +11,43 @@ mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mod)
 
 
+class TestParseSelectColumns:
+    def test_simple_columns(self):
+        sql = "SELECT a, b FROM t"
+        cols = mod._parse_select_columns(sql)
+        assert cols == [("a", "a"), ("b", "b")]
+
+    def test_aliased_aggregate(self):
+        sql = "SELECT COUNT(*) as total FROM t"
+        cols = mod._parse_select_columns(sql)
+        assert cols == [("COUNT(*)", "total")]
+
+    def test_round_wrapped_aggregate(self):
+        sql = "SELECT ROUND(AVG(x), 2) as avg_x FROM t"
+        cols = mod._parse_select_columns(sql)
+        assert len(cols) == 1
+        assert cols[0][1] == "avg_x"
+        assert "ROUND(AVG(x), 2)" in cols[0][0]
+
+    def test_case_when_expression(self):
+        sql = "SELECT SUM(CASE WHEN x = 1 THEN 1 ELSE 0 END) as hits FROM t"
+        cols = mod._parse_select_columns(sql)
+        assert len(cols) == 1
+        assert cols[0][1] == "hits"
+        assert "SUM(CASE WHEN" in cols[0][0]
+
+    def test_multi_column_with_date_trunc(self):
+        sql = "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, COUNT(*) as total FROM t"
+        cols = mod._parse_select_columns(sql)
+        assert len(cols) == 2
+        assert cols[0][1] == "day"
+        assert cols[1] == ("COUNT(*)", "total")
+
+    def test_no_from_returns_empty(self):
+        sql = "SELECT a, b"
+        assert mod._parse_select_columns(sql) == []
+
+
 class TestParseSelectAliases:
     def test_simple_columns(self):
         sql = "SELECT a, b FROM t"
@@ -73,17 +110,69 @@ class TestMakeFields:
         # Should have fallback x at minimum
         assert len(fields["x"]) >= 1
 
-    def test_group_by_dimension_goes_to_x(self):
+    def test_group_by_non_time_without_time_goes_to_x(self):
+        """Non-time GROUP BY without time dimension → x-axis (categorical bar/pie)."""
         sql = "SELECT persona, COUNT(*) as runs FROM t GROUP BY persona"
         fields = mod._make_fields(sql, "bar")
         x_aliases = [f["alias"] for f in fields["x"]]
+        y_aliases = [f["alias"] for f in fields["y"]]
         assert "persona" in x_aliases
+        assert "runs" in y_aliases
+        assert fields["z"] == []
 
     def test_colors_assigned_to_y(self):
         sql = "SELECT COUNT(*) as total FROM t"
         fields = mod._make_fields(sql, "bar")
         for y in fields["y"]:
             assert y["color"] is not None
+
+    def test_case_when_aggregate_goes_to_y(self):
+        """CASE WHEN wrapped in SUM should be classified as y-axis, not x."""
+        sql = "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(100.0 * SUM(CASE WHEN gate_status = 'fail' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) as failure_pct FROM t GROUP BY day ORDER BY day"
+        fields = mod._make_fields(sql, "line")
+        x_aliases = [f["alias"] for f in fields["x"]]
+        y_aliases = [f["alias"] for f in fields["y"]]
+        assert "day" in x_aliases
+        assert "failure_pct" in y_aliases
+        assert "failure_pct" not in x_aliases
+
+    def test_multi_group_by_produces_z_axis(self):
+        """Multi-GROUP BY: time goes to x, non-time dimension goes to z, aggregate to y."""
+        sql = "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, operation_name as gate, COUNT(*) as failures FROM t GROUP BY day, gate ORDER BY day"
+        fields = mod._make_fields(sql, "line")
+        x_aliases = [f["alias"] for f in fields["x"]]
+        y_aliases = [f["alias"] for f in fields["y"]]
+        z_aliases = [f["alias"] for f in fields["z"]]
+        assert "day" in x_aliases
+        assert "gate" in z_aliases
+        assert "failures" in y_aliases
+
+    def test_round_wrapped_aggregate_goes_to_y(self):
+        """ROUND(AVG(x), 2) should go to y-axis since AVG is detected inside."""
+        sql = "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(duration / 1000000), 1) as avg_lead_time_s FROM t GROUP BY day ORDER BY day"
+        fields = mod._make_fields(sql, "area")
+        x_aliases = [f["alias"] for f in fields["x"]]
+        y_aliases = [f["alias"] for f in fields["y"]]
+        assert "day" in x_aliases
+        assert "avg_lead_time_s" in y_aliases
+        assert "avg_lead_time_s" not in x_aliases
+
+    def test_quality_gates_panel1_pattern(self):
+        """Quality Gates Panel 1: gate to x (categorical, no time), passed+failed to y."""
+        sql = "SELECT operation_name as gate, SUM(CASE WHEN gate_status = 'pass' THEN 1 ELSE 0 END) as passed, SUM(CASE WHEN gate_status = 'fail' THEN 1 ELSE 0 END) as failed FROM t GROUP BY gate"
+        fields = mod._make_fields(sql, "bar")
+        x_aliases = [f["alias"] for f in fields["x"]]
+        y_aliases = [f["alias"] for f in fields["y"]]
+        assert "gate" in x_aliases
+        assert "passed" in y_aliases
+        assert "failed" in y_aliases
+        assert fields["z"] == []
+
+    def test_z_field_present_in_result(self):
+        """The z key should always be present in the result dict."""
+        sql = "SELECT COUNT(*) as total FROM t"
+        fields = mod._make_fields(sql, "bar")
+        assert "z" in fields
 
 
 class TestFixAggregateTimestamp:
@@ -109,6 +198,7 @@ class TestFixAggregateTimestamp:
         assert fixed == sql
 
     def test_round_avg_is_aggregate(self):
+        """ROUND(AVG(x), 2) still triggers because AVG( is in the detection list."""
         sql = "SELECT ROUND(AVG(x), 2) as avg_x FROM t"
         fixed = mod._fix_aggregate_timestamp(sql)
         assert "MIN(_timestamp)" in fixed

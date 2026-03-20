@@ -6,19 +6,19 @@
       "id": 1,
       "title": "Gate Pass/Fail Rates",
       "type": "bar",
-      "query": "SELECT operation_name as gate, SUM(CASE WHEN gate_status = 'pass' THEN 1 ELSE 0 END) as passed, SUM(CASE WHEN gate_status = 'fail' THEN 1 ELSE 0 END) as failed FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY gate"
+      "query": "SELECT operation_name as gate, SUM(CASE WHEN gate_status = 'pass' THEN 1 ELSE 0 END) as passed, SUM(CASE WHEN gate_status = 'fail' THEN 1 ELSE 0 END) as failed FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY gate"
     },
     {
       "id": 2,
       "title": "Average Gate Duration (ms)",
       "type": "bar",
-      "query": "SELECT operation_name as gate, ROUND(AVG(CAST(gate_duration_ms AS DOUBLE)), 0) as avg_ms FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND gate_duration_ms IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY gate ORDER BY avg_ms DESC"
+      "query": "SELECT operation_name as gate, ROUND(AVG(CAST(gate_duration_ms AS DOUBLE)), 0) as avg_ms FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND gate_duration_ms IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY gate ORDER BY avg_ms DESC"
     },
     {
       "id": 3,
       "title": "Security Findings by CWE",
       "type": "bar",
-      "query": "SELECT security_cwe_ids as cwe, COUNT(*) as count FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.gate_3_security' AND security_cwe_ids IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY cwe ORDER BY count DESC"
+      "query": "SELECT security_cwe_ids as cwe, COUNT(*) as count FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.gate_3_security' AND security_cwe_ids IS NOT NULL AND security_cwe_ids != '' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY cwe ORDER BY count DESC"
     },
     {
       "id": 4,

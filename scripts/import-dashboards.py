@@ -29,6 +29,7 @@ EMPTY_FILTER = {"filterType": "group", "logicalOperator": "AND", "conditions": [
 
 # Panel type mapping: our custom types → OpenObserve chart types
 PANEL_TYPE_MAP = {
+    "area": "area-stacked",  # OO lacks plain 'area' type; area-stacked is visually identical for single-series
     "bar": "bar",
     "line": "line",
     "pie": "pie",
@@ -57,19 +58,19 @@ import re
 _COLORS = ["#5960b2", "#e8854a", "#54a24b", "#b279a2", "#4c78a8", "#f58518"]
 
 
-def _parse_select_aliases(sql: str) -> list[str]:
-    """Extract column aliases from a SELECT clause.
+def _parse_select_columns(sql: str) -> list[tuple[str, str]]:
+    """Extract (expression, alias) pairs from a SELECT clause.
 
-    Returns a list of alias names in order.  Handles ``expr as alias``
-    and bare ``column`` forms.
+    Returns a list of ``(expression_text, alias)`` tuples in column order.
+    Handles ``expr as alias`` and bare ``column`` forms.
+    Uses parenthesis-depth tracking to correctly split on commas.
     """
-    # Grab text between SELECT and FROM
     m = re.search(r"SELECT\s+(.*?)\s+FROM\s", sql, re.I | re.S)
     if not m:
         return []
     select_body = m.group(1)
 
-    aliases: list[str] = []
+    parts: list[str] = []
     depth = 0
     current = ""
     for ch in select_body:
@@ -78,70 +79,108 @@ def _parse_select_aliases(sql: str) -> list[str]:
         elif ch == ")":
             depth -= 1
         elif ch == "," and depth == 0:
-            aliases.append(current.strip())
+            parts.append(current.strip())
             current = ""
             continue
         current += ch
     if current.strip():
-        aliases.append(current.strip())
+        parts.append(current.strip())
 
-    result = []
-    for part in aliases:
-        # "expr as alias" — take alias
+    result: list[tuple[str, str]] = []
+    for part in parts:
         m2 = re.search(r"\bas\s+(\w+)\s*$", part, re.I)
         if m2:
-            result.append(m2.group(1))
+            expr = part[: m2.start()].strip()
+            result.append((expr, m2.group(1)))
         else:
-            # bare column or "table.column"
             token = part.strip().split(".")[-1].strip()
-            result.append(token)
+            result.append((part.strip(), token))
     return result
+
+
+def _parse_select_aliases(sql: str) -> list[str]:
+    """Extract column aliases from a SELECT clause.
+
+    Delegates to ``_parse_select_columns`` and returns only the alias names.
+    """
+    return [alias for _, alias in _parse_select_columns(sql)]
 
 
 def _detect_agg(expr_upper: str) -> str | None:
     """Return the aggregate function name if the expression uses one."""
-    for fn in ("COUNT", "SUM", "AVG", "MIN", "MAX", "ROUND"):
+    for fn in ("COUNT", "SUM", "AVG", "MIN", "MAX"):
         if fn + "(" in expr_upper:
             return fn.lower()
     return None
 
 
+def _extract_group_by_columns(sql: str) -> list[str]:
+    """Extract column names/aliases from the GROUP BY clause."""
+    m = re.search(r"GROUP\s+BY\s+(.*?)(?:\s+ORDER\s+|\s+LIMIT\s+|\s+HAVING\s+|$)", sql, re.I | re.S)
+    if not m:
+        return []
+    return [col.strip() for col in m.group(1).split(",")]
+
+
 def _make_fields(sql: str, panel_type: str) -> dict:
-    """Build the ``fields`` dict with proper x/y axis definitions.
+    """Build the ``fields`` dict with proper x/y/z axis definitions.
+
+    Classification logic:
+    - **x-axis**: aliases matching time dimensions (_timestamp, day, hour, week, month)
+    - **z-axis (breakdown)**: non-time, non-aggregate aliases that appear in GROUP BY
+    - **y-axis**: everything else (aggregates, computed metrics)
 
     OpenObserve requires non-empty ``x`` and ``y`` arrays for panels to
     render, even when ``customQuery: true``.
     """
-    aliases = _parse_select_aliases(sql)
-    upper = sql.upper()
-    has_group_by = "GROUP BY" in upper
+    columns = _parse_select_columns(sql)
+    group_by_cols = _extract_group_by_columns(sql)
+
+    _TIME_ALIASES = {"_timestamp", "day", "hour", "week", "month"}
+
+    # Determine if query has a time dimension — controls GROUP BY routing
+    has_time = any(alias in _TIME_ALIASES for _, alias in columns)
 
     x_fields: list[dict] = []
     y_fields: list[dict] = []
+    z_fields: list[dict] = []
 
-    for alias in aliases:
-        is_ts = alias == "_timestamp" or alias in ("hour", "day", "week", "month")
-        # Check if this alias is an aggregate by looking at its expression
-        # in the original SQL
-        m = re.search(
-            rf"([\w()./*+\- ]+)\s+as\s+{re.escape(alias)}\b",
-            sql, re.I,
-        )
-        expr = m.group(1).upper().strip() if m else ""
-        is_agg = _detect_agg(expr) is not None
+    for expr, alias in columns:
+        is_time = alias in _TIME_ALIASES
+        is_agg = _detect_agg(expr.upper()) is not None
+        in_group_by = alias in group_by_cols
 
-        if is_ts or (not is_agg and has_group_by and alias not in ("_timestamp",)):
-            # x-axis: time columns or GROUP BY dimensions
+        if is_time:
+            # x-axis: time dimensions
             x_fields.append({
                 "label": alias.replace("_", " ").title(),
                 "alias": alias,
                 "column": alias,
                 "color": None,
-                "aggregationFunction": "min" if is_ts else None,
+                "aggregationFunction": "min" if alias == "_timestamp" else None,
             })
+        elif not is_agg and in_group_by:
+            if has_time:
+                # z-axis: breakdown dimension alongside a time x-axis (multi-series)
+                z_fields.append({
+                    "label": alias.replace("_", " ").title(),
+                    "alias": alias,
+                    "column": alias,
+                    "color": None,
+                    "aggregationFunction": None,
+                })
+            else:
+                # x-axis: categorical dimension (no time → bar/pie by category)
+                x_fields.append({
+                    "label": alias.replace("_", " ").title(),
+                    "alias": alias,
+                    "column": alias,
+                    "color": None,
+                    "aggregationFunction": None,
+                })
         else:
-            # y-axis: aggregate / value columns
-            agg_fn = _detect_agg(expr) or "count"
+            # y-axis: aggregates and computed metrics
+            agg_fn = _detect_agg(expr.upper()) or "count"
             y_fields.append({
                 "label": alias.replace("_", " ").title(),
                 "alias": alias,
@@ -159,12 +198,12 @@ def _make_fields(sql: str, panel_type: str) -> dict:
             "color": None,
             "aggregationFunction": "min",
         })
-    if not y_fields and aliases:
-        # Use last alias as y
+    if not y_fields and columns:
+        last_alias = columns[-1][1]
         y_fields.append({
-            "label": aliases[-1].replace("_", " ").title(),
-            "alias": aliases[-1],
-            "column": aliases[-1],
+            "label": last_alias.replace("_", " ").title(),
+            "alias": last_alias,
+            "column": last_alias,
             "color": _COLORS[0],
             "aggregationFunction": "count",
         })
@@ -174,7 +213,7 @@ def _make_fields(sql: str, panel_type: str) -> dict:
         "stream_type": "traces",
         "x": x_fields,
         "y": y_fields,
-        "z": [],
+        "z": z_fields,
         "filter": EMPTY_FILTER,
     }
 
@@ -192,7 +231,7 @@ def _fix_aggregate_timestamp(sql: str) -> str:
     GROUP BY clause).
     """
     upper = sql.upper()
-    has_agg = any(fn in upper for fn in ("COUNT(", "SUM(", "AVG(", "MIN(", "MAX(", "ROUND("))
+    has_agg = any(fn in upper for fn in ("COUNT(", "SUM(", "AVG(", "MIN(", "MAX("))
     has_group_by = "GROUP BY" in upper
     already_has_ts_agg = "MIN(_TIMESTAMP)" in upper or "MAX(_TIMESTAMP)" in upper
     if has_agg and not has_group_by and not already_has_ts_agg:
@@ -231,12 +270,128 @@ def _translate_panel(panel: dict, idx: int) -> dict:
         },
         "layout": {
             "x": 0,
-            "y": idx * 6,
-            "w": 12,
-            "h": 6,
+            "y": idx * 18,
+            "w": 192,
+            "h": 18,
             "i": idx + 1,
         },
     }
+
+
+def _get_query_fields(panel: dict) -> dict:
+    """Get field definitions from the query level (where OO stores them).
+
+    OO empties panel-level ``fields`` for ``customQuery`` panels but preserves
+    ``queries[0].fields``.
+    """
+    queries = panel.get("queries") or [{}]
+    return queries[0].get("fields", {})
+
+
+def _detect_drift(sent_panels: list[dict], stored_panels: list[dict]) -> list[dict]:
+    """Compare sent vs stored panels for OO config drift.
+
+    Compares query-level field definitions (where OO stores them) and query text.
+    """
+    drifts: list[dict] = []
+    sent_by_id = {p["id"]: p for p in sent_panels}
+    stored_by_id = {p["id"]: p for p in stored_panels}
+
+    for panel_id, sent in sent_by_id.items():
+        stored = stored_by_id.get(panel_id)
+        if not stored:
+            drifts.append({"panel": panel_id, "type": "missing"})
+            continue
+
+        # Compare query-level fields (where OO stores them)
+        sent_fields = _get_query_fields(sent)
+        stored_fields = _get_query_fields(stored)
+
+        for axis in ("x", "y", "z"):
+            sent_aliases = sorted(f["alias"] for f in sent_fields.get(axis, []))
+            stored_aliases = sorted(f["alias"] for f in stored_fields.get(axis, []))
+            if sent_aliases != stored_aliases:
+                drifts.append({
+                    "panel": panel_id, "type": "fields", "axis": axis,
+                    "sent": sent_aliases, "stored": stored_aliases,
+                })
+
+        # Compare query text
+        sent_q = (sent.get("queries") or [{}])[0].get("query", "")
+        stored_q = (stored.get("queries") or [{}])[0].get("query", "")
+        if sent_q.strip() != stored_q.strip():
+            drifts.append({
+                "panel": panel_id, "type": "query",
+                "sent_preview": sent_q[:80], "stored_preview": stored_q[:80],
+            })
+
+    return drifts
+
+
+def _patch_dashboard(dash_id: str, sent_panels: list[dict]) -> None:
+    """Verify stored dashboard matches what we sent. Patch if drifted.
+
+    OO stores field definitions in ``queries[0].fields`` (not panel-level).
+    If drift is detected, overlays our definitions and PUTs back with the
+    required ``hash`` for optimistic concurrency.
+    """
+    stored = _api("GET", f"dashboards/{dash_id}")
+    if isinstance(stored, str):
+        print(f"    WARN: Could not GET for verification: {stored}")
+        return
+
+    v8 = stored.get("v8", {})
+    stored_tabs = v8.get("tabs", [])
+    if not stored_tabs:
+        return
+    stored_panels = stored_tabs[0].get("panels", [])
+
+    drifts = _detect_drift(sent_panels, stored_panels)
+    if not drifts:
+        print(f"    VERIFIED: no drift")
+        return
+
+    # Report drift
+    for d in drifts:
+        if d["type"] == "fields":
+            print(f"    DRIFT: {d['panel']} {d['axis']}-axis: sent={d['sent']} stored={d['stored']}")
+        elif d["type"] == "query":
+            print(f"    DRIFT: {d['panel']} query rewritten")
+        else:
+            print(f"    DRIFT: {d['panel']} {d['type']}")
+
+    # Overlay our field definitions and queries onto stored panels
+    sent_by_id = {p["id"]: p for p in sent_panels}
+    for sp in stored_panels:
+        original = sent_by_id.get(sp["id"])
+        if not original:
+            continue
+        # Patch query-level fields and query text
+        if original.get("queries") and sp.get("queries"):
+            for sq, oq in zip(sp["queries"], original["queries"]):
+                sq["fields"] = oq["fields"]
+                sq["query"] = oq["query"]
+
+    # PUT back with hash for optimistic concurrency
+    put_body = v8.copy()
+    put_body["hash"] = stored.get("hash", "")
+    result = _api("PUT", f"dashboards/{dash_id}", put_body)
+    if isinstance(result, str):
+        print(f"    WARN: PATCH PUT failed: {result}")
+        return
+    print(f"    PATCHED: corrected {len(drifts)} drift(s)")
+
+    # Verify patch stuck
+    verify = _api("GET", f"dashboards/{dash_id}")
+    if isinstance(verify, str):
+        return
+    verify_panels = verify.get("v8", {}).get("tabs", [{}])[0].get("panels", [])
+    re_drifts = _detect_drift(sent_panels, verify_panels)
+    if re_drifts:
+        print(f"    WARN: {len(re_drifts)} drift(s) persist after PATCH — OO rewrites on save")
+        for d in re_drifts:
+            if d["type"] == "fields":
+                print(f"      {d['panel']} {d['axis']}-axis: wanted={d['sent']} got={d['stored']}")
 
 
 def delete_existing():
@@ -265,6 +420,10 @@ def import_dashboard(path: Path) -> str | None:
     dashboard = {
         "title": config["title"],
         "description": config.get("description", ""),
+        "defaultDatetimeDuration": {
+            "type": "relative",
+            "relativeTimePeriod": "30d",
+        },
         "tabs": [{
             "tabId": "default",
             "name": "Overview",
@@ -281,6 +440,10 @@ def import_dashboard(path: Path) -> str | None:
     tab_count = len(result.get("v8", {}).get("tabs", []))
     panel_count = len(result["v8"]["tabs"][0]["panels"]) if tab_count else 0
     print(f"  OK: {config['title']} → {dash_id} ({panel_count} panels)")
+
+    # Verify and patch OO config drift
+    _patch_dashboard(dash_id, panels)
+
     return dash_id
 
 

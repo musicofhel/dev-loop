@@ -6,13 +6,13 @@
       "id": 1,
       "title": "Runs Per Day (Deployment Frequency Proxy)",
       "type": "bar",
-      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, COUNT(DISTINCT trace_id) as runs FROM default WHERE service_name = 'dev-loop' AND operation_name = 'intake.issue_pickup' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, COUNT(DISTINCT trace_id) as runs FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 2,
       "title": "Average Lead Time (seconds)",
       "type": "area",
-      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(duration / 1000000), 1) as avg_lead_time_s FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(CAST(duration AS DOUBLE) / 1000000), 1) as avg_lead_time_s FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 3,
@@ -24,7 +24,7 @@
       "id": 4,
       "title": "Recovery Time Trend (seconds)",
       "type": "area",
-      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(duration / 1000000), 1) as avg_recovery_s FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(CAST(duration AS DOUBLE) / 1000000), 1) as avg_recovery_s FROM default WHERE service_name = 'dev-loop' AND operation_name = 'feedback.retry' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     }
   ]
 }

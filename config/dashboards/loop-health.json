@@ -12,25 +12,25 @@
       "id": 2,
       "title": "Daily Success Rate (%)",
       "type": "area",
-      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(100.0 * SUM(CASE WHEN gates_first_failure IS NULL THEN 1 ELSE 0 END) / COUNT(*), 1) as success_pct FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.run_all' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(100.0 * SUM(CASE WHEN (gates_first_failure IS NULL OR gates_first_failure = '') THEN 1 ELSE 0 END) / COUNT(*), 1) as success_pct FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.run_all' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 3,
       "title": "Average Lead Time Per Day (seconds)",
       "type": "area",
-      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(duration / 1000000), 1) as avg_lead_time_s FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(CAST(duration AS DOUBLE) / 1000000), 1) as avg_lead_time_s FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     },
     {
       "id": 4,
       "title": "Gate Failure Breakdown",
       "type": "bar",
-      "query": "SELECT gates_first_failure as gate, COUNT(*) as failures FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.run_all' AND gates_first_failure IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY gate ORDER BY failures DESC"
+      "query": "SELECT gates_first_failure as gate, COUNT(*) as failures FROM default WHERE service_name = 'dev-loop' AND operation_name = 'gates.run_all' AND (gates_first_failure IS NOT NULL AND gates_first_failure != '') AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY gate ORDER BY failures DESC"
     },
     {
       "id": 5,
       "title": "Pipeline Runs Over Time",
       "type": "line",
-      "query": "SELECT DATE_TRUNC('hour', TO_TIMESTAMP(_timestamp / 1000000)) as hour, COUNT(*) as runs FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND _timestamp >= CAST(NOW() - INTERVAL '7 DAYS' AS BIGINT) / 1000 GROUP BY hour ORDER BY hour"
+      "query": "SELECT DATE_TRUNC('hour', TO_TIMESTAMP(_timestamp / 1000000)) as hour, COUNT(*) as runs FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY hour ORDER BY hour"
     },
     {
       "id": 6,
