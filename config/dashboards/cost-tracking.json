@@ -12,7 +12,7 @@
       "id": 2,
       "title": "Spend by Persona",
       "type": "bar",
-      "query": "SELECT devloop_agent_persona as persona, ROUND(SUM(CAST(devloop_cost_spent_usd AS DOUBLE)), 2) as total_spent FROM default WHERE service_name = 'dev-loop' AND devloop_cost_spent_usd IS NOT NULL AND devloop_agent_persona IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY persona ORDER BY total_spent DESC"
+      "query": "SELECT persona_name as persona, ROUND(SUM(CAST(devloop_cost_spent_usd AS DOUBLE)), 2) as total_spent FROM default WHERE service_name = 'dev-loop' AND devloop_cost_spent_usd IS NOT NULL AND persona_name IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY persona ORDER BY total_spent DESC"
     },
     {
       "id": 3,

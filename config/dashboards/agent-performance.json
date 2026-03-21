@@ -10,9 +10,9 @@
     },
     {
       "id": 2,
-      "title": "Duration by Persona (ms)",
+      "title": "Duration by Persona (seconds)",
       "type": "bar",
-      "query": "SELECT COALESCE(tb1_persona, tb2_persona, tb3_persona, tb4_persona, tb6_persona) as persona, ROUND(AVG(CAST(duration AS DOUBLE) / 1000), 1) as avg_ms FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.phase.persona' AND COALESCE(tb1_persona, tb2_persona, tb3_persona, tb4_persona, tb6_persona) IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY persona ORDER BY avg_ms DESC"
+      "query": "SELECT COALESCE(tb1_persona, tb2_persona, tb3_persona, tb4_persona, tb6_persona) as persona, ROUND(AVG(CAST(duration AS DOUBLE) / 1000000), 1) as avg_seconds FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND COALESCE(tb1_persona, tb2_persona, tb3_persona, tb4_persona, tb6_persona) IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY persona ORDER BY avg_seconds DESC"
     },
     {
       "id": 3,

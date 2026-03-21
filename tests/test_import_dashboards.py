@@ -202,3 +202,81 @@ class TestFixAggregateTimestamp:
         sql = "SELECT ROUND(AVG(x), 2) as avg_x FROM t"
         fixed = mod._fix_aggregate_timestamp(sql)
         assert "MIN(_timestamp)" in fixed
+
+    def test_limit_query_skipped(self):
+        """Queries with LIMIT are flat detail listings — no MIN(_timestamp) injection."""
+        sql = "SELECT trace_id, ROUND(cost, 4) as spent FROM t ORDER BY spent DESC LIMIT 20"
+        fixed = mod._fix_aggregate_timestamp(sql)
+        assert fixed == sql
+        assert "MIN(_timestamp)" not in fixed
+
+    def test_limit_with_aggregate_still_skipped(self):
+        """Even if there's an aggregate function, LIMIT queries should be skipped."""
+        sql = "SELECT name, COUNT(*) as cnt FROM t GROUP BY name ORDER BY cnt DESC LIMIT 10"
+        fixed = mod._fix_aggregate_timestamp(sql)
+        assert fixed == sql
+
+
+class TestLabelOverrides:
+    def test_known_alias_gets_override(self):
+        """Aliases in _LABEL_OVERRIDES get human-readable labels."""
+        sql = "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(CAST(duration AS DOUBLE) / 1000000), 1) as avg_lead_time_s FROM t GROUP BY day"
+        fields = mod._make_fields(sql, "area")
+        y_labels = [f["label"] for f in fields["y"]]
+        assert "Avg Lead Time (s)" in y_labels
+
+    def test_unknown_alias_gets_title_case(self):
+        """Aliases not in _LABEL_OVERRIDES fall back to title case."""
+        sql = "SELECT some_custom_metric as custom_thing, COUNT(*) as total FROM t GROUP BY custom_thing"
+        fields = mod._make_fields(sql, "bar")
+        x_labels = [f["label"] for f in fields["x"]]
+        assert "Custom Thing" in x_labels
+
+    def test_multiple_overrides_in_one_query(self):
+        """Multiple y-axis fields each get their own label override."""
+        sql = "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(100.0 * SUM(CASE WHEN x = 1 THEN 1 ELSE 0 END) / COUNT(*), 1) as success_pct FROM t GROUP BY day"
+        fields = mod._make_fields(sql, "line")
+        y_labels = [f["label"] for f in fields["y"]]
+        assert "Success Rate (%)" in y_labels
+
+
+class TestTranslatePanel:
+    def test_color_overrides_applied(self):
+        """Per-panel color overrides from config are applied to y-axis fields."""
+        panel = {
+            "id": 1,
+            "title": "Test",
+            "type": "bar",
+            "colors": {"passed": "#4caf50", "failed": "#d62728"},
+            "query": "SELECT gate, SUM(CASE WHEN s = 'pass' THEN 1 ELSE 0 END) as passed, SUM(CASE WHEN s = 'fail' THEN 1 ELSE 0 END) as failed FROM t GROUP BY gate",
+        }
+        result = mod._translate_panel(panel, 0)
+        y_fields = result["fields"]["y"]
+        color_map = {f["alias"]: f["color"] for f in y_fields}
+        assert color_map["passed"] == "#4caf50"
+        assert color_map["failed"] == "#d62728"
+
+    def test_no_color_overrides_uses_defaults(self):
+        """Without color overrides, default palette is used."""
+        panel = {
+            "id": 1,
+            "title": "Test",
+            "type": "bar",
+            "query": "SELECT COUNT(*) as total FROM t",
+        }
+        result = mod._translate_panel(panel, 0)
+        y_fields = result["fields"]["y"]
+        assert y_fields[0]["color"] == mod._COLORS[0]
+
+    def test_categorical_x_axis_has_count_aggregation(self):
+        """Categorical x-axis fields get aggregationFunction='count' to signal OO."""
+        panel = {
+            "id": 1,
+            "title": "Test",
+            "type": "bar",
+            "query": "SELECT persona, COUNT(*) as runs FROM t GROUP BY persona",
+        }
+        result = mod._translate_panel(panel, 0)
+        x_fields = result["fields"]["x"]
+        assert x_fields[0]["alias"] == "persona"
+        assert x_fields[0]["aggregationFunction"] == "count"

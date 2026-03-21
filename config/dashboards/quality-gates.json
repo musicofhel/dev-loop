@@ -6,13 +6,14 @@
       "id": 1,
       "title": "Gate Pass/Fail Rates",
       "type": "bar",
+      "colors": {"passed": "#4caf50", "failed": "#d62728"},
       "query": "SELECT operation_name as gate, SUM(CASE WHEN gate_status = 'pass' THEN 1 ELSE 0 END) as passed, SUM(CASE WHEN gate_status = 'fail' THEN 1 ELSE 0 END) as failed FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY gate"
     },
     {
       "id": 2,
       "title": "Average Gate Duration (ms)",
       "type": "bar",
-      "query": "SELECT operation_name as gate, ROUND(AVG(CAST(gate_duration_ms AS DOUBLE)), 0) as avg_ms FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND gate_duration_ms IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY gate ORDER BY avg_ms DESC"
+      "query": "SELECT operation_name as gate, ROUND(AVG(CAST(gate_duration_ms AS DOUBLE)) / 1000, 0) as avg_ms FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'gates.gate_%' AND gate_duration_ms IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY gate ORDER BY avg_ms DESC"
     },
     {
       "id": 3,

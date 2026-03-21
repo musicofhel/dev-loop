@@ -57,6 +57,20 @@ import re
 # Colours for y-axis series
 _COLORS = ["#5960b2", "#e8854a", "#54a24b", "#b279a2", "#4c78a8", "#f58518"]
 
+# Human-readable label overrides for common aliases
+_LABEL_OVERRIDES = {
+    "avg_lead_time_s": "Avg Lead Time (s)",
+    "failure_pct": "Failure Rate (%)",
+    "avg_recovery_s": "Avg Recovery Time (s)",
+    "success_pct": "Success Rate (%)",
+    "retry_pct": "Retry Rate (%)",
+    "avg_ms": "Avg Duration (ms)",
+    "avg_seconds": "Avg Duration (s)",
+    "avg_us": "Avg Duration (µs)",
+    "block_pct": "Block Rate (%)",
+    "utilization_pct": "Budget Utilization (%)",
+}
+
 
 def _parse_select_columns(sql: str) -> list[tuple[str, str]]:
     """Extract (expression, alias) pairs from a SELECT clause.
@@ -145,6 +159,9 @@ def _make_fields(sql: str, panel_type: str) -> dict:
     y_fields: list[dict] = []
     z_fields: list[dict] = []
 
+    def _label(alias: str) -> str:
+        return _LABEL_OVERRIDES.get(alias, alias.replace("_", " ").title())
+
     for expr, alias in columns:
         is_time = alias in _TIME_ALIASES
         is_agg = _detect_agg(expr.upper()) is not None
@@ -153,7 +170,7 @@ def _make_fields(sql: str, panel_type: str) -> dict:
         if is_time:
             # x-axis: time dimensions
             x_fields.append({
-                "label": alias.replace("_", " ").title(),
+                "label": _label(alias),
                 "alias": alias,
                 "column": alias,
                 "color": None,
@@ -163,7 +180,7 @@ def _make_fields(sql: str, panel_type: str) -> dict:
             if has_time:
                 # z-axis: breakdown dimension alongside a time x-axis (multi-series)
                 z_fields.append({
-                    "label": alias.replace("_", " ").title(),
+                    "label": _label(alias),
                     "alias": alias,
                     "column": alias,
                     "color": None,
@@ -171,18 +188,19 @@ def _make_fields(sql: str, panel_type: str) -> dict:
                 })
             else:
                 # x-axis: categorical dimension (no time → bar/pie by category)
+                # aggregationFunction="count" signals OO this is a categorical dimension
                 x_fields.append({
-                    "label": alias.replace("_", " ").title(),
+                    "label": _label(alias),
                     "alias": alias,
                     "column": alias,
                     "color": None,
-                    "aggregationFunction": None,
+                    "aggregationFunction": "count",
                 })
         else:
             # y-axis: aggregates and computed metrics
             agg_fn = _detect_agg(expr.upper()) or "count"
             y_fields.append({
-                "label": alias.replace("_", " ").title(),
+                "label": _label(alias),
                 "alias": alias,
                 "column": alias,
                 "color": _COLORS[len(y_fields) % len(_COLORS)],
@@ -231,6 +249,9 @@ def _fix_aggregate_timestamp(sql: str) -> str:
     GROUP BY clause).
     """
     upper = sql.upper()
+    # Skip flat detail listings (LIMIT implies top-N, not aggregate)
+    if "LIMIT" in upper:
+        return sql
     has_agg = any(fn in upper for fn in ("COUNT(", "SUM(", "AVG(", "MIN(", "MAX("))
     has_group_by = "GROUP BY" in upper
     already_has_ts_agg = "MIN(_TIMESTAMP)" in upper or "MAX(_TIMESTAMP)" in upper
@@ -246,6 +267,14 @@ def _translate_panel(panel: dict, idx: int) -> dict:
     query = _fix_aggregate_timestamp(panel["query"])
     ptype = PANEL_TYPE_MAP.get(panel["type"], "table")
     fields = _make_fields(query, ptype)
+
+    # Apply per-panel color overrides from config
+    color_overrides = panel.get("colors", {})
+    if color_overrides:
+        for y_field in fields["y"]:
+            if y_field["alias"] in color_overrides:
+                y_field["color"] = color_overrides[y_field["alias"]]
+
     return {
         "id": f"panel_{panel['id']}",
         "type": ptype,
