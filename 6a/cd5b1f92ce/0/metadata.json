@@ -1,0 +1,44 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "6acd5b1f92ce",
+  "session_id": "31435d0a-45bb-41a9-9fe2-f30277b52786",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-21T20:32:21.106895382Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/devloop/feedback/changelog.py",
+    "src/devloop/feedback/pipeline.py",
+    "src/devloop/feedback/server.py",
+    "src/devloop/feedback/tb1_golden_path.py",
+    "src/devloop/feedback/tb2_retry.py",
+    "src/devloop/feedback/tb3_security.py",
+    "src/devloop/feedback/tb4_runaway.py",
+    "src/devloop/feedback/tb5_cascade.py",
+    "src/devloop/feedback/tb6_replay.py",
+    "src/devloop/intake/beads_poller.py",
+    "src/devloop/intake/server.py",
+    "tests/test_tb1.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "814c73a430ea",
+  "token_usage": {
+    "input_tokens": 3,
+    "cache_creation_tokens": 14184,
+    "cache_read_tokens": 8891,
+    "output_tokens": 439,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-21T20:32:21.080228794Z",
+    "agent_lines": 0,
+    "human_added": 964,
+    "human_modified": 42,
+    "human_removed": 0,
+    "total_committed": 964,
+    "agent_percentage": 0
+  }
+}
