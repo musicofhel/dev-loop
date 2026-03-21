@@ -12,6 +12,7 @@ personas:
     retry_max: 2
     model: sonnet
     max_turns_default: 10
+    max_context_pct: 75
 
   feature:
     labels: [feature]
@@ -22,6 +23,7 @@ personas:
     retry_max: 1
     model: opus
     max_turns_default: 25
+    max_context_pct: 75
 
   refactor:
     labels: [refactor]
@@ -32,6 +34,7 @@ personas:
     retry_max: 1
     model: opus
     max_turns_default: 20
+    max_context_pct: 75
 
   security-fix:
     labels: [security]
@@ -43,6 +46,7 @@ personas:
     retry_max: 3
     model: opus
     max_turns_default: 15
+    max_context_pct: 75
 
   docs:
     labels: [docs]
@@ -52,6 +56,7 @@ personas:
     retry_max: 1
     model: haiku
     max_turns_default: 10
+    max_context_pct: 75
 
   chore:
     labels: [chore]
@@ -61,6 +66,7 @@ personas:
     retry_max: 1
     model: haiku
     max_turns_default: 5
+    max_context_pct: 75
 
   performance:
     labels: [performance, perf]
@@ -70,6 +76,7 @@ personas:
     retry_max: 1
     model: sonnet
     max_turns_default: 15
+    max_context_pct: 75
 
   infrastructure:
     labels: [infrastructure, ci, ci-cd, devops]
@@ -80,6 +87,7 @@ personas:
     retry_max: 1
     model: sonnet
     max_turns_default: 10
+    max_context_pct: 75
 
   test:
     labels: [test, testing]
@@ -90,3 +98,4 @@ personas:
     retry_max: 1
     model: sonnet
     max_turns_default: 15
+    max_context_pct: 75

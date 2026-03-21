@@ -128,10 +128,18 @@ def _parse_usage_from_output(stdout: str) -> dict:
     - NDJSON with one object per line (older versions)
 
     Scans for the ``{"type":"result"}`` object and extracts ``num_turns``,
-    ``input_tokens``, and ``output_tokens``.  Returns a dict with those
-    keys (all defaulting to 0 on parse failure).
+    ``input_tokens``, and ``output_tokens``.  Also tracks
+    ``peak_input_tokens`` from the last assistant message, which
+    approximates peak context window usage.
+
+    Returns a dict with those keys (all defaulting to 0 on parse failure).
     """
-    result: dict = {"num_turns": 0, "input_tokens": 0, "output_tokens": 0}
+    result: dict = {
+        "num_turns": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "peak_input_tokens": 0,
+    }
 
     # Collect all JSON objects — handle both array and NDJSON formats
     objects: list[dict] = []
@@ -148,6 +156,21 @@ def _parse_usage_from_output(stdout: str) -> dict:
         elif isinstance(parsed, dict):
             objects.append(parsed)
 
+    # Track peak input tokens from assistant messages (last turn = peak context)
+    peak_input = 0
+    for obj in objects:
+        obj_type = obj.get("type", "")
+        if obj_type == "assistant":
+            msg = obj.get("message")
+            msg_usage = (
+                (msg.get("usage") if isinstance(msg, dict) else None)
+                or obj.get("usage")
+                or {}
+            )
+            turn_input = msg_usage.get("input_tokens", 0)
+            if turn_input > peak_input:
+                peak_input = turn_input
+
     for obj in objects:
         if obj.get("type") != "result":
             continue
@@ -156,14 +179,104 @@ def _parse_usage_from_output(stdout: str) -> dict:
         result["input_tokens"] = usage.get("input_tokens", 0)
         result["output_tokens"] = usage.get("output_tokens", 0)
         break
+
+    result["peak_input_tokens"] = peak_input
     return result
 
 
-def _run_agent(config: AgentConfig) -> AgentResult:
+# Model context window sizes (tokens)
+_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
+    "opus": 200_000,
+    "sonnet": 200_000,
+    "haiku": 200_000,
+}
+_DEFAULT_CONTEXT_WINDOW = 200_000
+
+
+def _estimate_context_pct(
+    peak_input_tokens: int,
+    total_input_tokens: int,
+    num_turns: int,
+    model: str,
+) -> float:
+    """Estimate context window usage as a percentage.
+
+    Uses peak_input_tokens (from the last assistant message) if available,
+    otherwise falls back to a heuristic based on total tokens and turns.
+    """
+    context_window = _MODEL_CONTEXT_WINDOWS.get(model, _DEFAULT_CONTEXT_WINDOW)
+
+    if peak_input_tokens > 0:
+        return round(peak_input_tokens / context_window * 100, 1)
+
+    # Fallback: estimate peak from total input and turn count.
+    # Total input grows roughly as a triangular sum; the last turn
+    # sees approximately 2 * total / (N+1) tokens.
+    if num_turns > 0 and total_input_tokens > 0:
+        estimated_peak = total_input_tokens * 2 / (num_turns + 1)
+        return round(estimated_peak / context_window * 100, 1)
+
+    return 0.0
+
+
+def _read_session_context_pct(worktree_path: str) -> float | None:
+    """Try to read context_pct from the ambient daemon's session metadata.
+
+    Scans /tmp/dev-loop/sessions/ for the most recently modified session
+    file and extracts token_estimate.context_pct.
+    """
+    import yaml as _yaml
+
+    sessions_dir = Path("/tmp/dev-loop/sessions")
+    if not sessions_dir.is_dir():
+        return None
+
+    # Find session files modified in the last 5 minutes
+    cutoff = time.monotonic()
+    candidates: list[tuple[float, Path]] = []
+    try:
+        for f in sessions_dir.iterdir():
+            if f.suffix in (".yaml", ".yml"):
+                try:
+                    mtime = f.stat().st_mtime
+                    candidates.append((mtime, f))
+                except OSError:
+                    continue
+    except OSError:
+        return None
+
+    if not candidates:
+        return None
+
+    # Use most recently modified
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    latest = candidates[0][1]
+
+    try:
+        data = _yaml.safe_load(latest.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            token_est = data.get("token_estimate", {})
+            context_pct = token_est.get("context_pct")
+            if context_pct is not None:
+                # Stored as a fraction (0.14 = 14%), convert to percentage
+                pct = float(context_pct)
+                if pct < 1.0:
+                    pct *= 100.0
+                return round(pct, 1)
+    except Exception:
+        pass
+
+    return None
+
+
+def _run_agent(config: AgentConfig, max_context_pct: int = 75) -> AgentResult:
     """Execute a Claude Code agent synchronously and return the result.
 
     Uses Popen + communicate(timeout=) so we can kill the child process on
     timeout instead of leaving a zombie (C1 fix from hardening slice 1).
+
+    After the agent exits, estimates context window usage and sets
+    ``context_limited=True`` if usage >= ``max_context_pct``.
     """
     claude_path = _find_claude_cli()
     cmd = _build_command(claude_path, config)
@@ -195,6 +308,21 @@ def _run_agent(config: AgentConfig) -> AgentResult:
 
         usage = _parse_usage_from_output(stdout)
 
+        # Determine context percentage — prefer ambient session data,
+        # fall back to estimation from parsed tokens.
+        session_pct = _read_session_context_pct(config.worktree_path)
+        if session_pct is not None:
+            context_pct = session_pct
+        else:
+            context_pct = _estimate_context_pct(
+                peak_input_tokens=usage["peak_input_tokens"],
+                total_input_tokens=usage["input_tokens"],
+                num_turns=usage["num_turns"],
+                model=config.model,
+            )
+
+        context_limited = context_pct >= max_context_pct
+
         return AgentResult(
             exit_code=proc.returncode,
             stdout=stdout,
@@ -207,6 +335,8 @@ def _run_agent(config: AgentConfig) -> AgentResult:
             num_turns=usage["num_turns"],
             input_tokens=usage["input_tokens"],
             output_tokens=usage["output_tokens"],
+            context_pct=context_pct,
+            context_limited=context_limited,
         )
 
     except subprocess.TimeoutExpired:
@@ -250,6 +380,7 @@ def spawn_agent(
     allowed_tools: list[str] | None = None,
     cost_ceiling: float = DEFAULT_COST_CEILING,
     max_turns: int | None = None,
+    max_context_pct: int = 75,
 ) -> dict:
     """Spawn a Claude Code agent in a worktree and return its output."""
     config = AgentConfig(
@@ -268,6 +399,7 @@ def spawn_agent(
             "runtime.worktree_path": config.worktree_path,
             "runtime.cost_ceiling": config.cost_ceiling,
             "runtime.timeout_seconds": config.timeout_seconds,
+            "runtime.max_context_pct": max_context_pct,
             "runtime.allowed_tools": ",".join(
                 config.allowed_tools or DEFAULT_ALLOWED_TOOLS
             ),
@@ -286,7 +418,7 @@ def spawn_agent(
             ).model_dump()
 
         try:
-            result = _run_agent(config)
+            result = _run_agent(config, max_context_pct=max_context_pct)
         except (ClaudeCLINotFound, FileNotFoundError) as exc:
             error_msg = str(exc)
             span.set_status(trace.StatusCode.ERROR, error_msg)
@@ -314,6 +446,8 @@ def spawn_agent(
         span.set_attribute("runtime.num_turns", result.num_turns)
         span.set_attribute("runtime.input_tokens", result.input_tokens)
         span.set_attribute("runtime.output_tokens", result.output_tokens)
+        span.set_attribute("runtime.context_pct", result.context_pct)
+        span.set_attribute("runtime.context_limited", result.context_limited)
 
         if result.exit_code == 0:
             span.set_status(trace.StatusCode.OK)

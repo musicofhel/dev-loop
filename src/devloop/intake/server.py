@@ -72,7 +72,7 @@ def _workitem_to_model(item: WorkItem) -> WorkItemModel:
     )
 
 
-def _run_br(*args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
+def _run_br(*args: str, check: bool = False, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
     """Run a br CLI command and return the result."""
     return subprocess.run(
         ["br", *args],
@@ -80,6 +80,7 @@ def _run_br(*args: str, check: bool = False) -> subprocess.CompletedProcess[str]
         text=True,
         check=check,
         timeout=30,
+        cwd=cwd,
     )
 
 

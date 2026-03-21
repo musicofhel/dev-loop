@@ -48,6 +48,20 @@ pub fn uuid_v4() -> String {
 }
 
 /// Build the session root span + summary span for a completed session.
+/// Build an OTLP status object. Per the OTel spec, the `message` (description)
+/// field is only populated when status_code is ERROR (code 2).
+fn span_status(is_error: bool, description: Option<&str>) -> serde_json::Value {
+    if is_error {
+        let mut status = json!({ "code": 2 });
+        if let Some(desc) = description {
+            status["message"] = json!(desc);
+        }
+        status
+    } else {
+        json!({ "code": 1 })
+    }
+}
+
 pub fn build_session_spans(
     session: &SessionInfo,
     outcome: Option<&str>,
@@ -100,6 +114,9 @@ pub fn build_session_spans(
         ));
     }
 
+    let is_error = session.block_count > 0;
+    let error_desc = format!("Session had {} block(s)", session.block_count);
+
     let mut root_span = json!({
         "traceId": session.trace_id,
         "spanId": session.root_span_id,
@@ -108,7 +125,7 @@ pub fn build_session_spans(
         "startTimeUnixNano": start_ns.to_string(),
         "endTimeUnixNano": end_ns.to_string(),
         "attributes": attributes,
-        "status": { "code": 1 }
+        "status": span_status(is_error, if is_error { Some(&error_desc) } else { None })
     });
 
     // Cross-trace link to previous session
@@ -137,7 +154,7 @@ pub fn build_session_spans(
             attr_int("session.warned", session.warn_count as i64),
             attr_str("session.repo", session.repo_root.as_deref().unwrap_or("")),
         ],
-        "status": { "code": 1 }
+        "status": span_status(session.block_count > 0, None)
     });
 
     vec![root_span, summary_span]
@@ -186,7 +203,10 @@ pub fn build_check_span(
         "startTimeUnixNano": (now - duration_us * 1000).to_string(),
         "endTimeUnixNano": now.to_string(),
         "attributes": attrs,
-        "status": { "code": 1 }
+        "status": span_status(
+            action == "block",
+            if action == "block" { Some("Check blocked tool call") } else { None },
+        )
     })
 }
 

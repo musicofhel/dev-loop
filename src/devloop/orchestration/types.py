@@ -27,6 +27,7 @@ class PersonaConfig(BaseModel):
     retry_max: int = 1
     model: str = "sonnet"
     max_turns_default: int = 15
+    max_context_pct: int = 75
 
 
 class ClaudeOverlay(BaseModel):

@@ -48,10 +48,84 @@ from devloop.runtime.server import spawn_agent
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+HANDOFF_DIR = Path("/tmp/dev-loop/handoffs")
+MAX_CONTEXT_RESTARTS = 3  # hard cap on context restarts per pipeline run
+
+# ---------------------------------------------------------------------------
 # OTel tracer
 # ---------------------------------------------------------------------------
 
 tracer_tb4 = trace.get_tracer("tb4", "0.1.0")
+
+
+# ---------------------------------------------------------------------------
+# Handoff helpers
+# ---------------------------------------------------------------------------
+
+
+def _read_handoff(issue_id: str) -> str | None:
+    """Read the handoff note for an issue, if it exists."""
+    handoff_path = HANDOFF_DIR / f"{issue_id}.md"
+    if handoff_path.is_file():
+        try:
+            content = handoff_path.read_text(encoding="utf-8").strip()
+            return content if content else None
+        except OSError:
+            return None
+    return None
+
+
+def _clear_handoff(issue_id: str) -> None:
+    """Remove a consumed handoff file."""
+    handoff_path = HANDOFF_DIR / f"{issue_id}.md"
+    try:
+        handoff_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _build_context_restart_prompt(
+    issue_title: str,
+    issue_description: str,
+    handoff_note: str,
+    overlay_text: str,
+) -> str:
+    """Build a task prompt for a context-restarted session.
+
+    Prepends the handoff note from the previous session so the fresh
+    agent knows what was already done and what remains.
+    """
+    sections: list[str] = []
+    sections.append("# Context Restart — Continuing from Previous Session")
+    sections.append("")
+    sections.append("A previous agent session ran out of context window space.")
+    sections.append("Below is its handoff note describing progress so far.")
+    sections.append("")
+    sections.append("## Handoff Note from Previous Session")
+    sections.append("")
+    sections.append(handoff_note)
+    sections.append("")
+    sections.append("## Original Task")
+    sections.append("")
+    if overlay_text:
+        sections.append(overlay_text)
+    else:
+        sections.append(f"Fix issue: {issue_title}")
+        sections.append("")
+        if issue_description:
+            sections.append(issue_description)
+    sections.append("")
+    sections.append("## Instructions")
+    sections.append("")
+    sections.append(
+        "Continue from where the previous session left off. "
+        "Review the handoff note above, verify the current state of the "
+        "worktree, and complete the remaining work."
+    )
+    return "\n".join(sections)
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +186,9 @@ def run_tb4(
         retries_used = 0
         max_retries = 2
         max_turns_total = 0
+        max_context_pct = 75
         turns_used_total = 0
+        context_restarts = 0
         usage_breakdown: list[UsageBreakdown] = []
         attempt_span_ids: list[str] = []
         trace_id: str | None = None
@@ -125,7 +201,7 @@ def run_tb4(
                 "tb4.phase.poll",
                 attributes={"tb4.phase": "poll"},
             ) as poll_span:
-                items = poll_ready()
+                items = poll_ready(repo_path=repo_path)
                 issue = None
                 for item in items:
                     if item.id == issue_id:
@@ -134,7 +210,7 @@ def run_tb4(
 
                 if issue is None:
                     poll_span.set_attribute("tb4.issue_found_in_poll", False)
-                    issue = get_issue(issue_id)
+                    issue = get_issue(issue_id, repo_path=repo_path)
                 if issue is None:
                     issue_title = issue_id
                     issue_description = ""
@@ -145,7 +221,7 @@ def run_tb4(
                     issue_description = issue.description or ""
                     issue_labels = issue.labels
                     if not issue_labels:
-                        full_issue = get_issue(issue_id)
+                        full_issue = get_issue(issue_id, repo_path=repo_path)
                         if full_issue and full_issue.labels:
                             issue_labels = full_issue.labels
 
@@ -158,7 +234,7 @@ def run_tb4(
                 "tb4.phase.claim",
                 attributes={"tb4.phase": "claim", "issue.id": issue_id},
             ) as claim_span:
-                claimed = claim_issue(issue_id)
+                claimed = claim_issue(issue_id, repo_path=repo_path)
                 claim_span.set_attribute("tb4.claimed", claimed)
 
                 if not claimed:
@@ -211,15 +287,19 @@ def run_tb4(
                 max_turns_total = turns_override or persona_result.get(
                     "max_turns_default", 15
                 )
+                max_context_pct = persona_result.get("max_context_pct", 75)
 
                 persona_span.set_attribute("tb4.persona", persona_name)
                 persona_span.set_attribute("tb4.max_retries", max_retries)
                 persona_span.set_attribute("tb4.max_turns_total", max_turns_total)
+                persona_span.set_attribute("tb4.max_context_pct", max_context_pct)
 
                 overlay_result = build_claude_md_overlay(
                     persona=persona_name,
                     issue_title=issue_title,
                     issue_description=issue_description,
+                    issue_id=issue_id,
+                    max_context_pct=max_context_pct,
                 )
                 overlay_text = overlay_result.get("overlay_text", "")
 
@@ -235,7 +315,11 @@ def run_tb4(
                     claude_md_path.write_text(combined, encoding="utf-8")
 
             root_span.set_attribute("tb4.max_turns_total", max_turns_total)
+            root_span.set_attribute("tb4.max_context_pct", max_context_pct)
             trace_id = _trace_id_hex(root_span)
+
+            # Ensure handoff directory exists
+            HANDOFF_DIR.mkdir(parents=True, exist_ok=True)
 
             # ----------------------------------------------------------
             # Phase 6: Start heartbeat
@@ -270,10 +354,13 @@ def run_tb4(
                     model=persona_result.get("model", "sonnet"),
                     max_turns=remaining_turns,
                     allowed_tools=allowed_tools,
+                    max_context_pct=max_context_pct,
                 )
 
                 agent_exit = agent_result.get("exit_code", -1)
                 agent_turns = agent_result.get("num_turns", 0)
+                agent_context_pct = agent_result.get("context_pct", 0.0)
+                agent_context_limited = agent_result.get("context_limited", False)
                 turns_used_total += agent_turns
                 remaining_turns = max(0, max_turns_total - turns_used_total)
 
@@ -283,12 +370,15 @@ def run_tb4(
                     input_tokens=agent_result.get("input_tokens", 0),
                     output_tokens=agent_result.get("output_tokens", 0),
                     cumulative_turns=turns_used_total,
+                    context_pct_at_exit=agent_context_pct,
                 ))
 
                 agent_span.set_attribute("tb4.agent_exit_code", agent_exit)
                 agent_span.set_attribute("runtime.num_turns", agent_turns)
                 agent_span.set_attribute("runtime.input_tokens", agent_result.get("input_tokens", 0))
                 agent_span.set_attribute("runtime.output_tokens", agent_result.get("output_tokens", 0))
+                agent_span.set_attribute("runtime.context_pct", agent_context_pct)
+                agent_span.set_attribute("runtime.context_limited", agent_context_limited)
                 agent_span.set_attribute("tb4.turns_remaining", remaining_turns)
 
                 if agent_exit != 0:
@@ -308,11 +398,111 @@ def run_tb4(
                         turns_used_total=turns_used_total,
                         max_turns_total=max_turns_total,
                         usage_breakdown=usage_breakdown,
+                        context_restarts=context_restarts,
                         trace_id=trace_id,
                         attempt_span_ids=attempt_span_ids,
                         error=f"Agent exited with code {agent_exit}",
                         duration_seconds=round(elapsed, 2),
                     ).model_dump()
+
+            # ----------------------------------------------------------
+            # Phase 7b: Context restart loop
+            # ----------------------------------------------------------
+            # If the agent hit the context limit, spawn a fresh session
+            # with the handoff note. This is NOT a gate retry — it's
+            # resource management.
+            while agent_context_limited and context_restarts < MAX_CONTEXT_RESTARTS:
+                if remaining_turns <= 0:
+                    logger.warning(
+                        "TB-4: Context-limited but no turns remaining — skipping restart"
+                    )
+                    break
+
+                with tracer_tb4.start_as_current_span(
+                    "runtime.context_restart",
+                    attributes={
+                        "tb4.phase": "context_restart",
+                        "context_pct_at_exit": agent_context_pct,
+                        "restart_count": context_restarts + 1,
+                        "handoff_file_path": str(HANDOFF_DIR / f"{issue_id}.md"),
+                    },
+                ) as restart_span:
+                    context_restarts += 1
+                    attempt_span_ids.append(_span_id_hex(restart_span))
+
+                    handoff_note = _read_handoff(issue_id)
+                    if handoff_note is None:
+                        logger.info(
+                            "TB-4: Context-limited at %.1f%% but no handoff file — "
+                            "continuing without restart",
+                            agent_context_pct,
+                        )
+                        restart_span.set_attribute("context_restart.handoff_found", False)
+                        break
+
+                    restart_span.set_attribute("context_restart.handoff_found", True)
+                    restart_span.set_attribute(
+                        "context_restart.handoff_length", len(handoff_note)
+                    )
+                    _clear_handoff(issue_id)
+
+                    logger.info(
+                        "TB-4 CONTEXT RESTART %d: Issue %s — context at %.1f%%, "
+                        "spawning fresh session with handoff (%d chars)",
+                        context_restarts,
+                        issue_id,
+                        agent_context_pct,
+                        len(handoff_note),
+                    )
+
+                    restart_prompt = _build_context_restart_prompt(
+                        issue_title=issue_title,
+                        issue_description=issue_description,
+                        handoff_note=handoff_note,
+                        overlay_text=overlay_text,
+                    )
+
+                    agent_result = spawn_agent(
+                        worktree_path=worktree_path,
+                        task_prompt=restart_prompt,
+                        model=persona_result.get("model", "sonnet"),
+                        max_turns=remaining_turns,
+                        allowed_tools=allowed_tools,
+                        max_context_pct=max_context_pct,
+                    )
+
+                    agent_exit = agent_result.get("exit_code", -1)
+                    agent_turns = agent_result.get("num_turns", 0)
+                    agent_context_pct = agent_result.get("context_pct", 0.0)
+                    agent_context_limited = agent_result.get("context_limited", False)
+                    turns_used_total += agent_turns
+                    remaining_turns = max(0, max_turns_total - turns_used_total)
+
+                    usage_breakdown.append(UsageBreakdown(
+                        attempt=0,
+                        num_turns=agent_turns,
+                        input_tokens=agent_result.get("input_tokens", 0),
+                        output_tokens=agent_result.get("output_tokens", 0),
+                        cumulative_turns=turns_used_total,
+                        context_pct_at_exit=agent_context_pct,
+                        context_restart=True,
+                    ))
+
+                    restart_span.set_attribute("runtime.num_turns", agent_turns)
+                    restart_span.set_attribute("runtime.context_pct", agent_context_pct)
+                    restart_span.set_attribute("tb4.turns_remaining", remaining_turns)
+
+                    if agent_exit != 0:
+                        restart_span.set_status(
+                            trace.StatusCode.ERROR,
+                            f"Restarted agent exited with code {agent_exit}",
+                        )
+                        # Don't fail the pipeline — fall through to gates
+                        break
+
+                    restart_span.set_status(trace.StatusCode.OK)
+
+            root_span.set_attribute("runtime_context_restarts", context_restarts)
 
             # ----------------------------------------------------------
             # Phase 8: Run quality gates (if turns remain)
@@ -364,6 +554,7 @@ def run_tb4(
                             turns_used_total=turns_used_total,
                             max_turns_total=max_turns_total,
                             usage_breakdown=usage_breakdown,
+                            context_restarts=context_restarts,
                             trace_id=trace_id,
                             attempt_span_ids=attempt_span_ids,
                             error=error_msg,
@@ -376,11 +567,12 @@ def run_tb4(
                         elapsed = time.monotonic() - pipeline_start
                         logger.info(
                             "TB-4 SUCCESS: Issue %s — all gates passed in %.1fs "
-                            "(%d/%d turns used)",
+                            "(%d/%d turns used, %d context restarts)",
                             issue_id,
                             elapsed,
                             turns_used_total,
                             max_turns_total,
+                            context_restarts,
                         )
                         root_span.set_attribute("tb4.outcome", "success")
                         root_span.set_attribute("tb4.turns_used_total", turns_used_total)
@@ -397,6 +589,7 @@ def run_tb4(
                             turns_used_total=turns_used_total,
                             max_turns_total=max_turns_total,
                             usage_breakdown=usage_breakdown,
+                            context_restarts=context_restarts,
                             trace_id=trace_id,
                             attempt_span_ids=attempt_span_ids,
                             duration_seconds=round(elapsed, 2),
@@ -479,12 +672,13 @@ def run_tb4(
                         elapsed = time.monotonic() - pipeline_start
                         logger.info(
                             "TB-4 SUCCESS after retry %d: Issue %s in %.1fs "
-                            "(%d/%d turns used)",
+                            "(%d/%d turns used, %d context restarts)",
                             attempt,
                             issue_id,
                             elapsed,
                             turns_used_total,
                             max_turns_total,
+                            context_restarts,
                         )
                         root_span.set_attribute("tb4.outcome", "success_after_retry")
                         root_span.set_attribute("tb4.retries_used", attempt)
@@ -506,6 +700,7 @@ def run_tb4(
                             turns_used_total=turns_used_total,
                             max_turns_total=max_turns_total,
                             usage_breakdown=usage_breakdown,
+                            context_restarts=context_restarts,
                             trace_id=trace_id,
                             attempt_span_ids=attempt_span_ids,
                             duration_seconds=round(elapsed, 2),
@@ -536,12 +731,15 @@ def run_tb4(
                     "tb4.phase": "escalate",
                     "escalate.attempts": retries_used + 1,
                     "tb4.turns_used_total": turns_used_total,
+                    "tb4.context_restarts": context_restarts,
                 },
             ) as esc_span:
                 reason = (
                     f"Turn limit reached: {turns_used_total}/{max_turns_total} turns "
                     f"across {retries_used + 1} attempt(s)"
                 )
+                if context_restarts > 0:
+                    reason += f" ({context_restarts} context restart(s))"
                 logger.warning("TB-4 ESCALATE: Issue %s — %s", issue_id, reason)
 
                 esc_result = escalate_to_human(
@@ -549,6 +747,7 @@ def run_tb4(
                     gate_failures=all_gate_failures,
                     attempts=retries_used + 1,
                     usage_breakdown=[u.model_dump() for u in usage_breakdown],
+                    repo_path=repo_path,
                 )
 
                 esc_span.set_attribute(
@@ -560,6 +759,7 @@ def run_tb4(
             root_span.set_attribute("tb4.outcome", "escalated")
             root_span.set_attribute("tb4.retries_used", retries_used)
             root_span.set_attribute("tb4.turns_used_total", turns_used_total)
+            root_span.set_attribute("runtime_context_restarts", context_restarts)
             root_span.set_status(
                 trace.StatusCode.ERROR,
                 f"Escalated: {turns_used_total}/{max_turns_total} turns used",
@@ -577,6 +777,7 @@ def run_tb4(
                 turns_used_total=turns_used_total,
                 max_turns_total=max_turns_total,
                 usage_breakdown=usage_breakdown,
+                context_restarts=context_restarts,
                 trace_id=trace_id,
                 attempt_span_ids=attempt_span_ids,
                 error=reason,
@@ -601,6 +802,7 @@ def run_tb4(
                 turns_used_total=turns_used_total,
                 max_turns_total=max_turns_total,
                 usage_breakdown=usage_breakdown,
+                context_restarts=context_restarts,
                 error=error_msg,
                 duration_seconds=round(elapsed, 2),
             ).model_dump()
@@ -624,8 +826,11 @@ def run_tb4(
             if worktree_path:
                 cleanup_worktree(issue_id)
 
+            # Clean up any leftover handoff file
+            _clear_handoff(issue_id)
+
             if not pipeline_success:
-                _unclaim_issue(issue_id)
+                _unclaim_issue(issue_id, repo_path=repo_path)
 
             if provider is not None:
                 try:

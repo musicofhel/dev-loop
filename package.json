@@ -1,0 +1,27 @@
+{
+  "name": "dev-loop",
+  "version": "1.0.0",
+  "description": "A tracer-bullet-driven developer tooling harness that wires beads issues through agent orchestration, quality gates, observability, and feedback loops — across multiple projects.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "uv run pytest tests/ -q && cd daemon && cargo test --quiet"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/musicofhel/dev-loop.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/musicofhel/dev-loop/issues"
+  },
+  "homepage": "https://github.com/musicofhel/dev-loop#readme",
+  "dependencies": {
+    "beautiful-mermaid": "^1.1.3"
+  }
+}

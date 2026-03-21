@@ -711,12 +711,9 @@ pub fn stop() {
     };
 
     let output = serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "Stop",
-            "additionalContext": format!(
-                "dev-loop: Context at ~{pct_display}%. {handoff_note}. Consider running /compact or starting a new session."
-            )
-        }
+        "stopReason": format!(
+            "Context at ~{pct_display}%. {handoff_note}. Consider running /compact or starting a new session."
+        )
     });
     println!("{output}");
 }

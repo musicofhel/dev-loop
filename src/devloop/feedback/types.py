@@ -149,6 +149,14 @@ class UsageBreakdown(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     cumulative_turns: int = 0
+    context_pct_at_exit: float = Field(
+        default=0.0,
+        description="Context window percentage when the agent exited.",
+    )
+    context_restart: bool = Field(
+        default=False,
+        description="True if this attempt was a context restart (fresh session with handoff).",
+    )
 
 
 class TB4Result(BaseModel):
@@ -187,6 +195,10 @@ class TB4Result(BaseModel):
     usage_breakdown: list[UsageBreakdown] = Field(
         default_factory=list,
         description="Per-attempt turn/token breakdown.",
+    )
+    context_restarts: int = Field(
+        default=0,
+        description="Number of context-limit restarts (fresh sessions with handoff notes).",
     )
 
 

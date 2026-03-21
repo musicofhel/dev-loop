@@ -35,8 +35,9 @@ class TestTB1GoldenPath:
     @patch("devloop.feedback.tb1_golden_path.setup_worktree")
     @patch("devloop.feedback.tb1_golden_path.claim_issue", return_value=True)
     @patch("devloop.feedback.tb1_golden_path.get_issue")
+    @patch("devloop.feedback.tb1_golden_path.poll_ready", return_value=[])
     def test_gates_pass_returns_success(
-        self, mock_get, mock_claim, mock_setup, mock_persona, mock_overlay,
+        self, mock_poll, mock_get, mock_claim, mock_setup, mock_persona, mock_overlay,
         mock_spawn, mock_gates, mock_hb_start, mock_hb_stop, mock_cleanup, mock_tracing,
         tmp_path,
     ):
@@ -86,8 +87,9 @@ class TestTB1GoldenPath:
     @patch("devloop.feedback.tb1_golden_path.setup_worktree")
     @patch("devloop.feedback.tb1_golden_path.claim_issue", return_value=True)
     @patch("devloop.feedback.tb1_golden_path.get_issue")
+    @patch("devloop.feedback.tb1_golden_path.poll_ready", return_value=[])
     def test_setup_worktree_failure_returns_error(
-        self, mock_get, mock_claim, mock_setup, mock_persona, mock_overlay,
+        self, mock_poll, mock_get, mock_claim, mock_setup, mock_persona, mock_overlay,
         mock_spawn, mock_gates, mock_hb_start, mock_hb_stop, mock_cleanup, mock_tracing,
     ):
         """run_tb1 returns error when worktree setup fails."""

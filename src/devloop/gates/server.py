@@ -861,17 +861,10 @@ def run_gate_25_dangerous_ops(worktree_path: str) -> dict:
                     )
                 )
             elif lock_changed and not source_changed:
-                findings.append(
-                    Finding(
-                        severity="warning",
-                        message=(
-                            f"Lock file inconsistency: {lock_file} changed but "
-                            f"{source_file} not modified — verify this is intentional"
-                        ),
-                        file=lock_file,
-                        rule="lock_file_mismatch",
-                    )
-                )
+                # Known lock files from recognized package managers can change
+                # without their source file changing (e.g. `uv lock --upgrade`,
+                # transitive dep updates).  This is expected — not dangerous.
+                pass
 
         # --- Determine pass/fail ---
         passed = not any(f.severity == "critical" for f in findings)

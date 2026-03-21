@@ -101,7 +101,7 @@ def _make_forced_failure() -> dict:
     ).model_dump()
 
 
-def _verify_blocked_status(issue_id: str) -> bool:
+def _verify_blocked_status(issue_id: str, repo_path: str | None = None) -> bool:
     """Check that a beads issue has status 'blocked'."""
     try:
         result = subprocess.run(
@@ -110,6 +110,7 @@ def _verify_blocked_status(issue_id: str) -> bool:
             text=True,
             check=False,
             timeout=30,
+            cwd=repo_path,
         )
         if result.returncode != 0:
             logger.warning(
@@ -194,7 +195,7 @@ def run_tb2(
                 "tb2.phase.poll",
                 attributes={"tb2.phase": "poll"},
             ) as poll_span:
-                items = poll_ready()
+                items = poll_ready(repo_path=repo_path)
                 issue = None
                 for item in items:
                     if item.id == issue_id:
@@ -203,7 +204,7 @@ def run_tb2(
 
                 if issue is None:
                     poll_span.set_attribute("tb2.issue_found_in_poll", False)
-                    issue = get_issue(issue_id)
+                    issue = get_issue(issue_id, repo_path=repo_path)
                 if issue is None:
                     issue_title = issue_id
                     issue_description = ""
@@ -214,7 +215,7 @@ def run_tb2(
                     issue_description = issue.description or ""
                     issue_labels = issue.labels
                     if not issue_labels:
-                        full_issue = get_issue(issue_id)
+                        full_issue = get_issue(issue_id, repo_path=repo_path)
                         if full_issue and full_issue.labels:
                             issue_labels = full_issue.labels
 
@@ -227,7 +228,7 @@ def run_tb2(
                 "tb2.phase.claim",
                 attributes={"tb2.phase": "claim", "issue.id": issue_id},
             ) as claim_span:
-                claimed = claim_issue(issue_id)
+                claimed = claim_issue(issue_id, repo_path=repo_path)
                 claim_span.set_attribute("tb2.claimed", claimed)
 
                 if not claimed:
@@ -580,6 +581,7 @@ def run_tb2(
                     issue_id=issue_id,
                     gate_failures=all_gate_failures,
                     attempts=retries_used + 1,
+                    repo_path=repo_path,
                 )
 
                 esc_span.set_attribute(
@@ -588,7 +590,7 @@ def run_tb2(
                 )
 
                 # TB-2 specific: verify the issue is actually blocked
-                blocked_verified = _verify_blocked_status(issue_id)
+                blocked_verified = _verify_blocked_status(issue_id, repo_path=repo_path)
                 esc_span.set_attribute("tb2.blocked_verified", blocked_verified)
 
                 if blocked_verified:
@@ -676,7 +678,7 @@ def run_tb2(
 
             # Unclaim issue if pipeline didn't succeed (M8 fix)
             if not pipeline_success:
-                _unclaim_issue(issue_id)
+                _unclaim_issue(issue_id, repo_path=repo_path)
 
             # Force flush OTel spans so they're available for verification
             if provider is not None:

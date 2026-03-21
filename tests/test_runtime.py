@@ -238,7 +238,7 @@ class TestParseUsageFromOutput:
     def test_returns_zeros_on_empty(self):
         """Returns all zeros when stdout is empty."""
         usage = _parse_usage_from_output("")
-        assert usage == {"num_turns": 0, "input_tokens": 0, "output_tokens": 0}
+        assert usage == {"num_turns": 0, "input_tokens": 0, "output_tokens": 0, "peak_input_tokens": 0}
 
     def test_returns_zeros_on_no_result_line(self):
         """Returns zeros when no result-type line exists."""
@@ -283,7 +283,7 @@ class TestParseUsageFromOutput:
             {"type": "assistant", "message": "hi"},
         ])
         usage = _parse_usage_from_output(stdout)
-        assert usage == {"num_turns": 0, "input_tokens": 0, "output_tokens": 0}
+        assert usage == {"num_turns": 0, "input_tokens": 0, "output_tokens": 0, "peak_input_tokens": 0}
 
     def test_json_array_with_non_dict_entries(self):
         """Skips non-dict entries in JSON array."""

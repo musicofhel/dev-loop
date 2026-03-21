@@ -334,7 +334,7 @@ def run_tb6(
             with tracer_tb6.start_as_current_span(
                 "tb6.phase.poll", attributes={"tb6.phase": "poll"},
             ) as poll_span:
-                items = poll_ready()
+                items = poll_ready(repo_path=repo_path)
                 issue = None
                 for item in items:
                     if item.id == issue_id:
@@ -342,7 +342,7 @@ def run_tb6(
                         break
                 if issue is None:
                     poll_span.set_attribute("tb6.issue_found_in_poll", False)
-                    issue = get_issue(issue_id)
+                    issue = get_issue(issue_id, repo_path=repo_path)
                 if issue is None:
                     issue_title = issue_id
                     issue_description = ""
@@ -353,7 +353,7 @@ def run_tb6(
                     issue_description = issue.description or ""
                     issue_labels = issue.labels
                     if not issue_labels:
-                        full_issue = get_issue(issue_id)
+                        full_issue = get_issue(issue_id, repo_path=repo_path)
                         if full_issue and full_issue.labels:
                             issue_labels = full_issue.labels
 
@@ -361,7 +361,7 @@ def run_tb6(
                 "tb6.phase.claim",
                 attributes={"tb6.phase": "claim", "issue.id": issue_id},
             ) as claim_span:
-                claimed = claim_issue(issue_id)
+                claimed = claim_issue(issue_id, repo_path=repo_path)
                 claim_span.set_attribute("tb6.claimed", claimed)
                 if not claimed:
                     elapsed = time.monotonic() - pipeline_start
@@ -594,6 +594,7 @@ def run_tb6(
                         issue_id=issue_id,
                         gate_failures=all_gate_failures,
                         attempts=retries_used + 1,
+                        repo_path=repo_path,
                     )
 
             # Return result
@@ -651,7 +652,7 @@ def run_tb6(
                 except Exception:
                     logger.warning("Failed to clean up worktree for %s", issue_id)
             if not pipeline_success and worktree_path is not None:
-                _unclaim_issue(issue_id)
+                _unclaim_issue(issue_id, repo_path=repo_path)
             try:
                 with tracer_tb6.start_as_current_span(
                     "tb6.phase.cleanup", attributes={"tb6.phase": "cleanup"},

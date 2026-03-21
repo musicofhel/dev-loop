@@ -95,3 +95,12 @@ class AgentResult(BaseModel):
         ge=0,
         description="Total output tokens consumed (parsed from --output-format json).",
     )
+    context_pct: float = Field(
+        default=0.0,
+        ge=0,
+        description="Estimated context window usage as a percentage (0-100+).",
+    )
+    context_limited: bool = Field(
+        default=False,
+        description="True if the agent exited at or above the context percentage threshold.",
+    )

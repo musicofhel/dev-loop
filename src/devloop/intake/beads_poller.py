@@ -56,7 +56,7 @@ class WorkItem:
         return None
 
 
-def claim_issue(issue_id: str) -> bool:
+def claim_issue(issue_id: str, repo_path: str | None = None) -> bool:
     """Atomically claim an issue via `br update --claim`.
 
     Uses br's --claim flag which sets assignee + status=in_progress
@@ -75,6 +75,7 @@ def claim_issue(issue_id: str) -> bool:
             text=True,
             check=False,
             timeout=30,
+            cwd=repo_path,
         )
     except subprocess.TimeoutExpired:
         logger.error("Timed out claiming issue %s", issue_id)
@@ -101,7 +102,7 @@ def claim_issue(issue_id: str) -> bool:
     return False
 
 
-def get_issue(issue_id: str) -> WorkItem | None:
+def get_issue(issue_id: str, repo_path: str | None = None) -> WorkItem | None:
     """Fetch a single issue by ID via ``br show <id> --json``.
 
     Returns a WorkItem or None on failure.  This is used as a fallback
@@ -115,6 +116,7 @@ def get_issue(issue_id: str) -> WorkItem | None:
             text=True,
             check=False,
             timeout=30,
+            cwd=repo_path,
         )
     except subprocess.TimeoutExpired:
         logger.error("Timed out fetching issue %s", issue_id)
@@ -150,10 +152,11 @@ def get_issue(issue_id: str) -> WorkItem | None:
     )
 
 
-def poll_ready(*, fail_on_missing: bool = False) -> list[WorkItem]:
+def poll_ready(*, repo_path: str | None = None, fail_on_missing: bool = False) -> list[WorkItem]:
     """Poll beads for ready issues. Returns WorkItems sorted by priority.
 
     Args:
+        repo_path: Directory containing .beads/ (auto-discovers if None).
         fail_on_missing: If True, raise BeadsUnavailable when br CLI is not
             found on PATH. If False (default), return an empty list silently.
     """
@@ -171,6 +174,7 @@ def poll_ready(*, fail_on_missing: bool = False) -> list[WorkItem]:
             text=True,
             check=False,
             timeout=30,
+            cwd=repo_path,
         )
     except subprocess.TimeoutExpired:
         logger.error("Timed out polling br ready")

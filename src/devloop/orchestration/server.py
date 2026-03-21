@@ -291,6 +291,7 @@ def select_persona(labels: list[str]) -> dict:
                 retry_max=fallback.get("retry_max", 1),
                 model=fallback.get("model", "opus"),
                 max_turns_default=fallback.get("max_turns_default", 15),
+                max_context_pct=fallback.get("max_context_pct", 75),
             )
             span.set_status(trace.StatusCode.OK)
             return persona.model_dump()
@@ -319,6 +320,7 @@ def select_persona(labels: list[str]) -> dict:
             retry_max=data.get("retry_max", 1),
             model=model,
             max_turns_default=data.get("max_turns_default", 15),
+            max_context_pct=data.get("max_context_pct", 75),
         )
 
         span.set_status(trace.StatusCode.OK)
@@ -338,6 +340,8 @@ def build_claude_md_overlay(
     persona: str,
     issue_title: str,
     issue_description: str,
+    issue_id: str = "",
+    max_context_pct: int = 75,
 ) -> dict:
     """Generate CLAUDE.md overlay text from persona + issue context."""
     with tracer.start_as_current_span(
@@ -383,6 +387,23 @@ def build_claude_md_overlay(
         lines.append("- Do not modify files outside the scope of this issue.")
         lines.append("- Commit your changes with a clear message referencing the issue ID.")
         lines.append("- If you are blocked or unsure, stop and report rather than guessing.")
+        lines.append("")
+
+        # Context limit / handoff instructions
+        handoff_id = issue_id or "current-issue"
+        handoff_path = f"/tmp/dev-loop/handoffs/{handoff_id}.md"
+        lines.append("## Context Window Management")
+        lines.append("")
+        lines.append(
+            f"- If you notice your context window is getting large (above ~{max_context_pct}%), "
+            "commit your current changes immediately."
+        )
+        lines.append(
+            f"- Write a brief handoff note to `{handoff_path}` describing: "
+            "what is done, what files were changed, what remains to be done, "
+            "and any important context for a fresh session."
+        )
+        lines.append("- Then exit cleanly. A fresh session will pick up where you left off.")
         lines.append("")
 
         # Deny list rules (prevents agent from reading secrets)
@@ -534,11 +555,28 @@ def create_pull_request(
                 message=msg,
             ).model_dump()
 
-        # Push the branch from the worktree
-        push_result = _run(
-            "git", "push", "origin", branch_name,
+        # Check if the remote branch already exists
+        remote_check = _run(
+            "git", "ls-remote", "--heads", "origin", branch_name,
             cwd=worktree_path,
         )
+        remote_exists = bool(remote_check.stdout.strip())
+
+        # Push the branch from the worktree
+        if remote_exists:
+            logger.warning(
+                "Remote branch %s already exists — force-pushing with lease",
+                branch_name,
+            )
+            push_result = _run(
+                "git", "push", "--force-with-lease", "origin", branch_name,
+                cwd=worktree_path,
+            )
+        else:
+            push_result = _run(
+                "git", "push", "origin", branch_name,
+                cwd=worktree_path,
+            )
         if push_result.returncode != 0:
             msg = (
                 push_result.stderr.strip()

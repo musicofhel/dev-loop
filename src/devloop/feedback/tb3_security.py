@@ -277,7 +277,7 @@ def run_tb3(
                 "tb3.phase.poll",
                 attributes={"tb3.phase": "poll"},
             ) as poll_span:
-                items = poll_ready()
+                items = poll_ready(repo_path=repo_path)
                 issue = None
                 for item in items:
                     if item.id == issue_id:
@@ -286,7 +286,7 @@ def run_tb3(
 
                 if issue is None:
                     poll_span.set_attribute("tb3.issue_found_in_poll", False)
-                    issue = get_issue(issue_id)
+                    issue = get_issue(issue_id, repo_path=repo_path)
                 if issue is None:
                     issue_title = issue_id
                     issue_description = ""
@@ -297,7 +297,7 @@ def run_tb3(
                     issue_description = issue.description or ""
                     issue_labels = issue.labels
                     if not issue_labels:
-                        full_issue = get_issue(issue_id)
+                        full_issue = get_issue(issue_id, repo_path=repo_path)
                         if full_issue and full_issue.labels:
                             issue_labels = full_issue.labels
                     # Ensure security label for persona selection
@@ -313,7 +313,7 @@ def run_tb3(
                 "tb3.phase.claim",
                 attributes={"tb3.phase": "claim", "issue.id": issue_id},
             ) as claim_span:
-                claimed = claim_issue(issue_id)
+                claimed = claim_issue(issue_id, repo_path=repo_path)
                 claim_span.set_attribute("tb3.claimed", claimed)
 
                 if not claimed:
@@ -680,6 +680,7 @@ def run_tb3(
                     issue_id=issue_id,
                     gate_failures=all_gate_failures,
                     attempts=retries_used + 1,
+                    repo_path=repo_path,
                 )
 
                 esc_span.set_attribute(
@@ -767,7 +768,7 @@ def run_tb3(
 
             # Unclaim issue if pipeline didn't succeed (M8 fix)
             if not pipeline_success:
-                _unclaim_issue(issue_id)
+                _unclaim_issue(issue_id, repo_path=repo_path)
 
             # Force flush OTel spans
             if provider is not None:

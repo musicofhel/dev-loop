@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
+from devloop.feedback.tb4_runaway import (
+    _build_context_restart_prompt,
+    _clear_handoff,
+    _read_handoff,
+    HANDOFF_DIR,
+)
 from devloop.feedback.types import TB4Result, UsageBreakdown
 from devloop.orchestration.types import PersonaConfig
+from devloop.runtime.server import _estimate_context_pct, _parse_usage_from_output
 from devloop.runtime.types import AgentConfig, AgentResult
 
 
@@ -219,3 +228,256 @@ class TestEscalationUsageTable:
         comment_call = mock_br.call_args_list[-1]
         comment_text = comment_call[0][-1]
         assert "Usage Breakdown" not in comment_text
+
+
+# ---------------------------------------------------------------------------
+# Context percentage estimation tests
+# ---------------------------------------------------------------------------
+
+
+class TestContextPctEstimation:
+    """Tests for _estimate_context_pct and _parse_usage_from_output context tracking."""
+
+    def test_estimate_from_peak_input(self):
+        """Peak input tokens produce correct percentage."""
+        # 100k tokens out of 200k context = 50%
+        pct = _estimate_context_pct(
+            peak_input_tokens=100_000,
+            total_input_tokens=500_000,
+            num_turns=10,
+            model="sonnet",
+        )
+        assert pct == 50.0
+
+    def test_estimate_from_peak_zero_falls_back(self):
+        """Falls back to heuristic when peak_input_tokens is 0."""
+        pct = _estimate_context_pct(
+            peak_input_tokens=0,
+            total_input_tokens=200_000,
+            num_turns=10,
+            model="sonnet",
+        )
+        # Heuristic: 2 * 200000 / (10+1) / 200000 * 100 ≈ 18.2%
+        assert 15.0 < pct < 25.0
+
+    def test_estimate_high_context(self):
+        """High peak input produces percentage above threshold."""
+        pct = _estimate_context_pct(
+            peak_input_tokens=160_000,
+            total_input_tokens=800_000,
+            num_turns=5,
+            model="opus",
+        )
+        assert pct == 80.0
+
+    def test_estimate_zero_turns(self):
+        """Zero turns returns 0%."""
+        pct = _estimate_context_pct(
+            peak_input_tokens=0,
+            total_input_tokens=0,
+            num_turns=0,
+            model="sonnet",
+        )
+        assert pct == 0.0
+
+    def test_parse_output_includes_peak_input(self):
+        """_parse_usage_from_output extracts peak_input_tokens."""
+        output = '\n'.join([
+            '{"type":"assistant","message":{"usage":{"input_tokens":50000,"output_tokens":1000}}}',
+            '{"type":"assistant","message":{"usage":{"input_tokens":120000,"output_tokens":2000}}}',
+            '{"type":"result","num_turns":2,"usage":{"input_tokens":170000,"output_tokens":3000}}',
+        ])
+        result = _parse_usage_from_output(output)
+        assert result["peak_input_tokens"] == 120000
+        assert result["num_turns"] == 2
+        assert result["input_tokens"] == 170000
+
+    def test_parse_output_no_assistant_messages(self):
+        """peak_input_tokens defaults to 0 when no assistant messages."""
+        output = '{"type":"result","num_turns":1,"usage":{"input_tokens":5000,"output_tokens":1000}}'
+        result = _parse_usage_from_output(output)
+        assert result["peak_input_tokens"] == 0
+
+
+# ---------------------------------------------------------------------------
+# AgentResult context fields tests
+# ---------------------------------------------------------------------------
+
+
+class TestAgentResultContextFields:
+    """Tests for AgentResult.context_pct and context_limited."""
+
+    def test_context_defaults(self):
+        """Context fields default to 0 / False."""
+        r = AgentResult(exit_code=0)
+        assert r.context_pct == 0.0
+        assert r.context_limited is False
+
+    def test_context_limited_flag(self):
+        """context_limited can be set."""
+        r = AgentResult(
+            exit_code=0,
+            context_pct=82.5,
+            context_limited=True,
+        )
+        assert r.context_pct == 82.5
+        assert r.context_limited is True
+
+
+# ---------------------------------------------------------------------------
+# PersonaConfig.max_context_pct tests
+# ---------------------------------------------------------------------------
+
+
+class TestPersonaConfigMaxContextPct:
+    """Tests for PersonaConfig.max_context_pct field."""
+
+    def test_max_context_pct_default(self):
+        """max_context_pct defaults to 75."""
+        p = PersonaConfig(name="test")
+        assert p.max_context_pct == 75
+
+    def test_max_context_pct_override(self):
+        """max_context_pct can be overridden."""
+        p = PersonaConfig(name="test", max_context_pct=60)
+        assert p.max_context_pct == 60
+
+
+# ---------------------------------------------------------------------------
+# TB4Result context_restarts field tests
+# ---------------------------------------------------------------------------
+
+
+class TestTB4ResultContextRestarts:
+    """Tests for TB4Result.context_restarts field."""
+
+    def test_context_restarts_default(self):
+        """context_restarts defaults to 0."""
+        r = TB4Result(
+            issue_id="dl-test",
+            repo_path="/tmp/repo",
+            success=True,
+            phase="gates_passed",
+        )
+        assert r.context_restarts == 0
+
+    def test_context_restarts_set(self):
+        """context_restarts can be set."""
+        r = TB4Result(
+            issue_id="dl-test",
+            repo_path="/tmp/repo",
+            success=True,
+            phase="gates_passed",
+            context_restarts=2,
+        )
+        assert r.context_restarts == 2
+
+    def test_context_restarts_in_serialized(self):
+        """context_restarts appears in model_dump()."""
+        r = TB4Result(
+            issue_id="dl-test",
+            repo_path="/tmp/repo",
+            success=True,
+            phase="gates_passed",
+            context_restarts=1,
+        )
+        d = r.model_dump()
+        assert d["context_restarts"] == 1
+
+
+# ---------------------------------------------------------------------------
+# UsageBreakdown context fields tests
+# ---------------------------------------------------------------------------
+
+
+class TestUsageBreakdownContextFields:
+    """Tests for UsageBreakdown context_pct_at_exit and context_restart fields."""
+
+    def test_context_fields_defaults(self):
+        """Context fields default to 0 / False."""
+        ub = UsageBreakdown(attempt=0)
+        assert ub.context_pct_at_exit == 0.0
+        assert ub.context_restart is False
+
+    def test_context_fields_set(self):
+        """Context fields can be set."""
+        ub = UsageBreakdown(
+            attempt=1,
+            context_pct_at_exit=78.3,
+            context_restart=True,
+        )
+        assert ub.context_pct_at_exit == 78.3
+        assert ub.context_restart is True
+
+
+# ---------------------------------------------------------------------------
+# Handoff file helpers tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandoffHelpers:
+    """Tests for _read_handoff, _clear_handoff, and _build_context_restart_prompt."""
+
+    def test_read_handoff_exists(self, tmp_path):
+        """_read_handoff returns content when file exists."""
+        handoff = tmp_path / "test-issue.md"
+        handoff.write_text("## Done\n- Fixed foo\n\n## Remaining\n- Fix bar\n")
+
+        with patch("devloop.feedback.tb4_runaway.HANDOFF_DIR", tmp_path):
+            note = _read_handoff("test-issue")
+            assert note is not None
+            assert "Fixed foo" in note
+            assert "Fix bar" in note
+
+    def test_read_handoff_missing(self, tmp_path):
+        """_read_handoff returns None when file doesn't exist."""
+        with patch("devloop.feedback.tb4_runaway.HANDOFF_DIR", tmp_path):
+            assert _read_handoff("nonexistent") is None
+
+    def test_read_handoff_empty(self, tmp_path):
+        """_read_handoff returns None for empty files."""
+        handoff = tmp_path / "empty.md"
+        handoff.write_text("")
+
+        with patch("devloop.feedback.tb4_runaway.HANDOFF_DIR", tmp_path):
+            assert _read_handoff("empty") is None
+
+    def test_clear_handoff(self, tmp_path):
+        """_clear_handoff removes the handoff file."""
+        handoff = tmp_path / "test-issue.md"
+        handoff.write_text("some content")
+
+        with patch("devloop.feedback.tb4_runaway.HANDOFF_DIR", tmp_path):
+            _clear_handoff("test-issue")
+            assert not handoff.exists()
+
+    def test_clear_handoff_missing(self, tmp_path):
+        """_clear_handoff is a no-op when file doesn't exist."""
+        with patch("devloop.feedback.tb4_runaway.HANDOFF_DIR", tmp_path):
+            _clear_handoff("nonexistent")  # should not raise
+
+    def test_build_context_restart_prompt(self):
+        """_build_context_restart_prompt includes handoff and task info."""
+        prompt = _build_context_restart_prompt(
+            issue_title="Fix login bug",
+            issue_description="Users can't log in",
+            handoff_note="## Done\n- Fixed auth check\n\n## Remaining\n- Add tests",
+            overlay_text="",
+        )
+        assert "Context Restart" in prompt
+        assert "Handoff Note from Previous Session" in prompt
+        assert "Fixed auth check" in prompt
+        assert "Add tests" in prompt
+        assert "Fix login bug" in prompt
+        assert "Continue from where the previous session left off" in prompt
+
+    def test_build_context_restart_prompt_with_overlay(self):
+        """_build_context_restart_prompt uses overlay_text when available."""
+        prompt = _build_context_restart_prompt(
+            issue_title="Fix bug",
+            issue_description="desc",
+            handoff_note="Done: X\nRemaining: Y",
+            overlay_text="# Custom Overlay\nDo this specific thing.",
+        )
+        assert "Custom Overlay" in prompt
+        assert "Done: X" in prompt

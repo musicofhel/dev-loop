@@ -95,7 +95,7 @@ def _latest_failure_gate(all_gate_failures: list[dict]) -> str | None:
     return None
 
 
-def _unclaim_issue(issue_id: str) -> None:
+def _unclaim_issue(issue_id: str, repo_path: str | None = None) -> None:
     """Release a claimed issue back to open status (M8 fix).
 
     Called in finally blocks when a pipeline fails without completing
@@ -108,6 +108,7 @@ def _unclaim_issue(issue_id: str) -> None:
             text=True,
             check=False,
             timeout=30,
+            cwd=repo_path,
         )
         logger.info("Unclaimed issue %s (set to open)", issue_id)
     except Exception:

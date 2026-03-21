@@ -111,7 +111,7 @@ def _match_watches(changed_files: list[str], watches: list[str]) -> list[str]:
     return matched
 
 
-def _get_source_issue_details(issue_id: str) -> dict:
+def _get_source_issue_details(issue_id: str, repo_path: str | None = None) -> dict:
     """Get source issue details via br show.
 
     Returns dict with title, description, labels keys.
@@ -122,6 +122,7 @@ def _get_source_issue_details(issue_id: str) -> dict:
         text=True,
         check=False,
         timeout=30,
+        cwd=repo_path,
     )
     if result.returncode != 0:
         error_msg = result.stderr.strip() or f"br show failed with exit code {result.returncode}"
@@ -146,6 +147,7 @@ def _create_cascade_issue(
     target_repo_name: str,
     matched_watches: list[str],
     dependency_type: str,
+    repo_path: str | None = None,
 ) -> str:
     """Create a cascade issue in beads for the target repo.
 
@@ -171,6 +173,7 @@ def _create_cascade_issue(
         text=True,
         check=False,
         timeout=30,
+        cwd=repo_path,
     )
     if result.returncode != 0:
         error_msg = result.stderr.strip() or f"br create failed with exit code {result.returncode}"
@@ -187,6 +190,7 @@ def _report_cascade_outcome(
     success: bool,
     cascade_skipped: bool,
     error: str | None = None,
+    repo_path: str | None = None,
 ) -> bool:
     """Add a comment to the source issue reporting cascade outcome.
 
@@ -215,6 +219,7 @@ def _report_cascade_outcome(
         text=True,
         check=False,
         timeout=30,
+        cwd=repo_path,
     )
     if result.returncode != 0:
         logger.warning(
@@ -293,7 +298,7 @@ def run_tb5(source_issue_id: str, source_repo_path: str, target_repo_path: str) 
                 "tb5.phase.get_source_issue",
                 attributes={"tb5.phase": "get_source_issue"},
             ) as phase_span:
-                source_details = _get_source_issue_details(source_issue_id)
+                source_details = _get_source_issue_details(source_issue_id, repo_path=source_repo_path)
                 source_title = source_details["title"]
                 phase_span.set_attribute("tb5.source_title", source_title)
 
@@ -377,6 +382,7 @@ def run_tb5(source_issue_id: str, source_repo_path: str, target_repo_path: str) 
                         target_repo_name=target_repo_name,
                         success=True,
                         cascade_skipped=True,
+                        repo_path=source_repo_path,
                     )
 
                 return TB5Result(
@@ -406,6 +412,7 @@ def run_tb5(source_issue_id: str, source_repo_path: str, target_repo_path: str) 
                     target_repo_name=target_repo_name,
                     matched_watches=matched_watches,
                     dependency_type=dependency_type or "unknown",
+                    repo_path=source_repo_path,
                 )
                 phase_span.set_attribute("tb5.target_issue_id", target_issue_id)
                 logger.info(
@@ -448,6 +455,7 @@ def run_tb5(source_issue_id: str, source_repo_path: str, target_repo_path: str) 
                     success=tb1_success,
                     cascade_skipped=False,
                     error=tb1_result.get("error"),
+                    repo_path=source_repo_path,
                 )
 
             elapsed = time.monotonic() - pipeline_start

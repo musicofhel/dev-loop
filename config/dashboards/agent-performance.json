@@ -25,6 +25,18 @@
       "title": "Token Usage Over Time",
       "type": "line",
       "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, SUM(CAST(runtime_input_tokens AS BIGINT)) as input_tokens, SUM(CAST(runtime_output_tokens AS BIGINT)) as output_tokens FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_input_tokens IS NOT NULL AND runtime_output_tokens IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+    },
+    {
+      "id": 5,
+      "title": "Context Restarts by Persona",
+      "type": "bar",
+      "query": "SELECT COALESCE(tb1_persona, tb4_persona) as persona, SUM(CAST(runtime_context_restarts AS INT)) as restarts FROM default WHERE service_name = 'dev-loop' AND operation_name IN ('tb1.run', 'tb4.run') AND runtime_context_restarts IS NOT NULL AND CAST(runtime_context_restarts AS INT) > 0 AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY persona ORDER BY restarts DESC"
+    },
+    {
+      "id": 6,
+      "title": "Context % at Exit (Distribution)",
+      "type": "area",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(CAST(runtime_context_pct AS DOUBLE)), 1) as avg_context_pct, ROUND(MAX(CAST(runtime_context_pct AS DOUBLE)), 1) as max_context_pct FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND runtime_context_pct IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
     }
   ]
 }

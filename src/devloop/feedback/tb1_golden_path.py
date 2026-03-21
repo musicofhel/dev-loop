@@ -23,6 +23,13 @@ from devloop.feedback.pipeline import (
     _set_pipeline_timeout,
     _unclaim_issue,
 )
+from devloop.feedback.tb4_runaway import (
+    HANDOFF_DIR,
+    MAX_CONTEXT_RESTARTS,
+    _build_context_restart_prompt,
+    _clear_handoff,
+    _read_handoff,
+)
 from devloop.feedback.server import escalate_to_human, retry_agent
 from devloop.feedback.types import TB1Result
 from devloop.gates.server import run_all_gates
@@ -98,6 +105,8 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
         pipeline_success = False
         retries_used = 0
         max_retries = 2
+        max_context_pct = 75
+        context_restarts = 0
 
         try:
             # ----------------------------------------------------------
@@ -107,7 +116,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 "tb1.phase.poll",
                 attributes={"tb1.phase": "poll"},
             ) as poll_span:
-                items = poll_ready()
+                items = poll_ready(repo_path=repo_path)
                 issue = None
                 for item in items:
                     if item.id == issue_id:
@@ -117,7 +126,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 if issue is None:
                     # Issue might not be in the "ready" list — fetch directly.
                     poll_span.set_attribute("tb1.issue_found_in_poll", False)
-                    issue = get_issue(issue_id)
+                    issue = get_issue(issue_id, repo_path=repo_path)
                 if issue is None:
                     elapsed = time.monotonic() - pipeline_start
                     poll_span.set_status(
@@ -140,7 +149,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     issue_labels = issue.labels
                     # br ready --json omits labels; enrich via get_issue
                     if not issue_labels:
-                        full_issue = get_issue(issue_id)
+                        full_issue = get_issue(issue_id, repo_path=repo_path)
                         if full_issue and full_issue.labels:
                             issue_labels = full_issue.labels
 
@@ -153,7 +162,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 "tb1.phase.claim",
                 attributes={"tb1.phase": "claim", "issue.id": issue_id},
             ) as claim_span:
-                claimed = claim_issue(issue_id)
+                claimed = claim_issue(issue_id, repo_path=repo_path)
                 claim_span.set_attribute("tb1.claimed", claimed)
 
                 if not claimed:
@@ -208,14 +217,18 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 persona_result = select_persona(issue_labels)
                 persona_name = persona_result.get("name", "feature")
                 max_retries = persona_result.get("retry_max", 2)
+                max_context_pct = persona_result.get("max_context_pct", 75)
 
                 persona_span.set_attribute("tb1.persona", persona_name)
                 persona_span.set_attribute("tb1.max_retries", max_retries)
+                persona_span.set_attribute("tb1.max_context_pct", max_context_pct)
 
                 overlay_result = build_claude_md_overlay(
                     persona=persona_name,
                     issue_title=issue_title,
                     issue_description=issue_description,
+                    issue_id=issue_id,
+                    max_context_pct=max_context_pct,
                 )
                 overlay_text = overlay_result.get("overlay_text", "")
 
@@ -254,12 +267,16 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 # Build the task prompt from the overlay
                 task_prompt = overlay_text or f"Fix issue: {issue_title}\n\n{issue_description}"
 
+                # Ensure handoff directory exists
+                HANDOFF_DIR.mkdir(parents=True, exist_ok=True)
+
                 allowed_tools = _load_allowed_tools(repo_path)
                 agent_result = spawn_agent(
                     worktree_path=worktree_path,
                     task_prompt=task_prompt,
                     model=persona_result.get("model", "sonnet"),
                     allowed_tools=allowed_tools,
+                    max_context_pct=max_context_pct,
                 )
 
                 agent_exit = agent_result.get("exit_code", -1)
@@ -284,6 +301,69 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                         max_retries=max_retries,
                         duration_seconds=round(elapsed, 2),
                     ).model_dump()
+
+            # ----------------------------------------------------------
+            # Phase 7b: Context restart loop (if agent hit context limit)
+            # ----------------------------------------------------------
+            agent_context_limited = agent_result.get("context_limited", False)
+            agent_context_pct = agent_result.get("context_pct", 0.0)
+            while agent_context_limited and context_restarts < MAX_CONTEXT_RESTARTS:
+                with tracer.start_as_current_span(
+                    "runtime.context_restart",
+                    attributes={
+                        "tb1.phase": "context_restart",
+                        "context_pct_at_exit": agent_context_pct,
+                        "restart_count": context_restarts + 1,
+                    },
+                ) as restart_span:
+                    context_restarts += 1
+
+                    handoff_note = _read_handoff(issue_id)
+                    if handoff_note is None:
+                        logger.info(
+                            "TB-1: Context-limited at %.1f%% but no handoff — skipping restart",
+                            agent_context_pct,
+                        )
+                        restart_span.set_attribute("context_restart.handoff_found", False)
+                        break
+
+                    restart_span.set_attribute("context_restart.handoff_found", True)
+                    _clear_handoff(issue_id)
+
+                    logger.info(
+                        "TB-1 CONTEXT RESTART %d: Issue %s at %.1f%%",
+                        context_restarts, issue_id, agent_context_pct,
+                    )
+
+                    restart_prompt = _build_context_restart_prompt(
+                        issue_title=issue_title,
+                        issue_description=issue_description,
+                        handoff_note=handoff_note,
+                        overlay_text=overlay_text,
+                    )
+
+                    agent_result = spawn_agent(
+                        worktree_path=worktree_path,
+                        task_prompt=restart_prompt,
+                        model=persona_result.get("model", "sonnet"),
+                        allowed_tools=allowed_tools,
+                        max_context_pct=max_context_pct,
+                    )
+
+                    agent_exit = agent_result.get("exit_code", -1)
+                    agent_context_pct = agent_result.get("context_pct", 0.0)
+                    agent_context_limited = agent_result.get("context_limited", False)
+                    restart_span.set_attribute("runtime.context_pct", agent_context_pct)
+
+                    if agent_exit != 0:
+                        restart_span.set_status(
+                            trace.StatusCode.ERROR,
+                            f"Restarted agent exited with code {agent_exit}",
+                        )
+                        break
+                    restart_span.set_status(trace.StatusCode.OK)
+
+            root_span.set_attribute("runtime_context_restarts", context_restarts)
 
             # ----------------------------------------------------------
             # Phase 8: Run quality gates
@@ -515,6 +595,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     issue_id=issue_id,
                     gate_failures=all_gate_failures,
                     attempts=retries_used + 1,  # +1 for the initial attempt
+                    repo_path=repo_path,
                 )
 
                 esc_span.set_attribute(
@@ -584,9 +665,12 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
             if worktree_path:
                 cleanup_worktree(issue_id)
 
+            # Clean up any leftover handoff file
+            _clear_handoff(issue_id)
+
             # Unclaim issue if pipeline didn't succeed (M8 fix)
             if not pipeline_success:
-                _unclaim_issue(issue_id)
+                _unclaim_issue(issue_id, repo_path=repo_path)
 
             # Flush spans (M1 fix — TB-1 was missing force_flush)
             if provider is not None:

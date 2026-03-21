@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("feedback.changelog", "0.1.0")
 
 
-def _run_br(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_br(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
     """Run a br CLI command."""
     return subprocess.run(
         ["br", *args],
@@ -34,6 +34,7 @@ def _run_br(*args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
         timeout=30,
+        cwd=cwd,
     )
 
 

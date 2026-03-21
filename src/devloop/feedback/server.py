@@ -51,7 +51,7 @@ mcp = FastMCP(
 # ---------------------------------------------------------------------------
 
 
-def _run_br(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_br(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
     """Run a br CLI command and return the result."""
     return subprocess.run(
         ["br", *args],
@@ -59,6 +59,7 @@ def _run_br(*args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
         timeout=30,
+        cwd=cwd,
     )
 
 
@@ -366,6 +367,7 @@ def escalate_to_human(
     gate_failures: list[dict],
     attempts: int,
     usage_breakdown: list[dict] | None = None,
+    repo_path: str | None = None,
 ) -> dict:
     """Mark issue as blocked with a failure summary comment."""
     with tracer.start_as_current_span(
@@ -422,7 +424,7 @@ def escalate_to_human(
         comment_text = "\n".join(comment_lines)
 
         # Update issue status to blocked
-        status_result = _run_br("update", issue_id, "--status", "blocked")
+        status_result = _run_br("update", issue_id, "--status", "blocked", cwd=repo_path)
         status_updated = status_result.returncode == 0
 
         if not status_updated:
@@ -432,7 +434,7 @@ def escalate_to_human(
             )
 
         # Add the failure summary comment
-        comment_result = _run_br("comments", "add", issue_id, "--message", comment_text)
+        comment_result = _run_br("comments", "add", issue_id, "--message", comment_text, cwd=repo_path)
         comment_added = comment_result.returncode == 0
 
         if not comment_added:
