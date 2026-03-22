@@ -1,0 +1,35 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "11772b070b04",
+  "session_id": "99f24ed5-768c-485f-8828-17dee6d72dea",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-22T01:48:53.711255261Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/devloop/feedback/tb3_security.py",
+    "src/devloop/gates/server.py",
+    "src/devloop/orchestration/server.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "e17a99a18e8a",
+  "token_usage": {
+    "input_tokens": 3,
+    "cache_creation_tokens": 11047,
+    "cache_read_tokens": 6499,
+    "output_tokens": 90,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-22T01:48:53.709877296Z",
+    "agent_lines": 0,
+    "human_added": 288,
+    "human_modified": 17,
+    "human_removed": 0,
+    "total_committed": 290,
+    "agent_percentage": 0
+  }
+}
