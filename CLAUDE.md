@@ -27,6 +27,9 @@ Developer tooling harness. Not an app. Not a library. A composition of tools wir
 - No synthetic benchmarks until real-repo tracer bullets pass
 - Scoring rubric at docs/scoring-rubric.md — every tool gets evaluated
 
+## Agents
+- **Dashboard debugging**: `@dashboard-mirror` grounds OpenObserve dashboard state via `~/dashboard-mirror` (Playwright capture → 3-analyst pipeline → grounding doc)
+
 ## What NOT To Do
 - Don't build abstractions until you have 3+ concrete uses
 - Don't add tools to the stack without running them through the scoring rubric first
