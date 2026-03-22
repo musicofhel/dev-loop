@@ -1,0 +1,17 @@
+[project]
+name = "dashboard-mirror"
+version = "0.1.0"
+description = "Visual and structural grounding for OpenObserve dashboards — screenshot, extract, analyze, synthesize."
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.49",
+]
+
+[project.scripts]
+dm-collect = "dashboard_mirror.collect:main"
+dm-schema = "dashboard_mirror.schema:main"
+dm-chain = "dashboard_mirror.transform_chain:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -28,7 +28,7 @@ Developer tooling harness. Not an app. Not a library. A composition of tools wir
 - Scoring rubric at docs/scoring-rubric.md — every tool gets evaluated
 
 ## Agents
-- **Dashboard debugging**: `@dashboard-mirror` grounds OpenObserve dashboard state via `~/dashboard-mirror` (Playwright capture → 3-analyst pipeline → grounding doc)
+- **Dashboard debugging**: `@dashboard-mirror` grounds OpenObserve dashboard state via `tools/dashboard-mirror/` (Playwright capture → 3-analyst pipeline → grounding doc)
 
 ## What NOT To Do
 - Don't build abstractions until you have 3+ concrete uses
