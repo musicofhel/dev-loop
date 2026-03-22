@@ -3,7 +3,7 @@
   "checkpoint_id": "11772b070b04",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "src/devloop/feedback/tb1_golden_path.py",
     "src/devloop/feedback/tb2_retry.py",
@@ -24,13 +24,19 @@
       "transcript": "/11/772b070b04/1/full.jsonl",
       "content_hash": "/11/772b070b04/1/content_hash.txt",
       "prompt": "/11/772b070b04/1/prompt.txt"
+    },
+    {
+      "metadata": "/11/772b070b04/2/metadata.json",
+      "transcript": "/11/772b070b04/2/full.jsonl",
+      "content_hash": "/11/772b070b04/2/content_hash.txt",
+      "prompt": "/11/772b070b04/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 6,
-    "cache_creation_tokens": 20564,
-    "cache_read_tokens": 15307,
-    "output_tokens": 1488,
-    "api_call_count": 2
+    "input_tokens": 9,
+    "cache_creation_tokens": 31586,
+    "cache_read_tokens": 21806,
+    "output_tokens": 1578,
+    "api_call_count": 3
   }
 }
