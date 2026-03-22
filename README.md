@@ -230,6 +230,14 @@ Once running, dev-loop silently protects every Claude Code session. No changes t
 | Feedback tests | 27 |
 | Replay tests | 19 |
 
+## Agents
+
+Claude Code agents that ship with dev-loop (`.claude/agents/`):
+
+| Agent | What it does |
+|-------|-------------|
+| `@dashboard-mirror` | Grounds OpenObserve dashboard state — Playwright capture → 3-analyst pipeline (structure, data, UX) → synthesis into a canonical grounding doc. Source at [`tools/dashboard-mirror/`](tools/dashboard-mirror/). |
+
 ## Documentation
 
 | Doc | What it covers |
