@@ -28,9 +28,13 @@ Screenshots alone are lossy. Labels get truncated, colors compress, empty panels
 │    • Multiple time ranges (1h, 7d, 30d)                │
 │                                                         │
 │  Also captures baseline data (once, not per-dashboard): │
+│    • OO health, config, cluster info                    │
 │    • Stream schema (all columns, types, samples)        │
-│    • Spec requirements (from project docs)              │
 │    • Cross-dashboard metric map                         │
+│    • Alerts, incidents, drift detection, schema coverage│
+│    • VRL functions, pipelines, field analysis            │
+│    • Trace services, operations, hierarchy, durations   │
+│    • Saved views, reports, annotations, folders         │
 └──────────────────────┬──────────────────────────────────┘
                        │
                        ▼
@@ -88,8 +92,36 @@ Screenshots alone are lossy. Labels get truncated, colors compress, empty panels
 ```
 output/
 ├── _baseline/
+│   ├── oo-health.json
+│   ├── oo-config.json
+│   ├── oo-org-settings.json
+│   ├── oo-org-summary.json
+│   ├── oo-cluster.json
 │   ├── stream-schema.json
 │   ├── cross-dashboard-map.json
+│   ├── alerts.json
+│   ├── alert-history.json
+│   ├── alert-incidents.json
+│   ├── alert-templates.json
+│   ├── alert-destinations.json
+│   ├── alert-dedup.json
+│   ├── alert-drift.json
+│   ├── alert-schema-coverage.json
+│   ├── functions.json
+│   ├── pipelines.json
+│   ├── pipeline-streams.json
+│   ├── pipeline-history.json
+│   ├── trace-services.json
+│   ├── trace-operations.json
+│   ├── trace-attributes.json
+│   ├── trace-structure.json
+│   ├── trace-dag.json
+│   ├── trace-durations.json
+│   ├── saved-views.json
+│   ├── enrichment-tables.json
+│   ├── reports.json
+│   ├── annotations.json
+│   ├── folders.json
 │   └── baseline-report.md            ← Agent 0 output
 ├── agent-performance/
 │   ├── screenshots/
@@ -141,36 +173,42 @@ uv run playwright install chromium
 
 OpenObserve must be running with dashboards imported.
 
-### Step 1: Collect mirror data
+### Step 1: Collect all mirror data
+
+**Recommended — single command:**
 
 ```bash
-# Collect from local OO instance (defaults)
-uv run dm-collect
-
-# Custom OO instance
-uv run dm-collect --url http://oo.example.com:5080 --user admin@example.com --pass secret
-
-# Collect only specific dashboards
-uv run dm-collect --dashboard agent-performance --dashboard loop-health
-
-# Custom output directory
-uv run dm-collect --output /path/to/output
+cd ~/dashboard-mirror
+uv run dm-collect-all                   # Full pipeline (~4-6 min)
+uv run dm-collect-all --skip-playwright # API-only (~30-40s)
 ```
 
-### Step 2: Capture stream schema
+This runs 8 collection steps in sequence:
+1. OO health & config
+2. Stream schemas + cross-dashboard map
+3. Alerts, incidents, destinations, drift detection
+4. VRL functions, pipelines, VRL field analysis
+5. Deep trace analysis (services, operations, attributes, DAGs, durations)
+6. Supplementary data (views, reports, annotations, folders)
+7. Config transformation chain diffs
+8. Playwright mirror capture (screenshots, DOM, API, timing)
+
+**Or run individual collectors:**
 
 ```bash
-uv run dm-schema
+uv run dm-health                                             # OO health, config, cluster
+uv run dm-schema                                             # Stream schemas
+uv run dm-alerts                                             # Alerts + drift detection
+uv run dm-alerts --alerts-config ~/dev-loop/config/alerts/rules.yaml
+uv run dm-functions                                          # VRL functions & pipelines
+uv run dm-traces                                             # Trace structure analysis
+uv run dm-supplementary                                      # Views, reports, annotations
+uv run dm-chain --config-dir ~/dev-loop/config/dashboards    # Config chain diffs
+uv run dm-collect                                            # Playwright capture
+uv run dm-collect --dashboard agent-performance --dashboard loop-health  # Specific dashboards
 ```
 
-### Step 3: Capture transform chain diffs
-
-```bash
-# Point at dev-loop config directory
-uv run dm-chain --config-dir ~/dev-loop/config/dashboards
-```
-
-### Step 4: Run analysis agents
+### Step 2: Run analysis agents
 
 This step is run from within a Claude Code session:
 

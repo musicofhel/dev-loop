@@ -1,7 +1,7 @@
 spec_version: "0.1.0"
 name: dashboard-mirror
-version: 0.1.0
-description: "Multi-agent dashboard grounding tool — captures visual and structural mirrors of OpenObserve dashboards, then runs 3-lens analysis (structure, data, UX) to produce canonical grounding documents."
+version: 0.2.0
+description: "Multi-agent dashboard grounding tool — captures visual/structural mirrors of OpenObserve dashboards plus alerts, traces, functions, pipelines, and supplementary objects, then runs 3-lens analysis (structure, data, UX) to produce canonical grounding documents."
 author: musicofhel
 license: MIT
 
