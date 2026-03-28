@@ -5,7 +5,7 @@
 # Requires the corresponding API key env var to be set.
 
 llmops:
-  enabled: false
+  enabled: true
   provider: openrouter
   api_key_env: OPENROUTER_API_KEY
 

@@ -390,14 +390,15 @@ class TestDSPyPrograms:
 class TestGate4FeatureFlag:
     """Tests for the LLMOps feature flag in Gate 4."""
 
-    def test_llmops_disabled_uses_cli_path(self):
-        """When llmops.enabled is False, the CLI path attribute is set."""
-        # This is a structural test — verify the config loading works
+    def test_llmops_config_loads_from_yaml(self):
+        """Config loading reads from llmops.yaml correctly."""
         from devloop.llmops.server import _load_llmops_config
 
         cfg = _load_llmops_config()
-        # Default config has enabled=False
-        assert cfg.enabled is False
+        # Config should load successfully and have expected structure
+        assert isinstance(cfg.enabled, bool)
+        assert cfg.provider in ("anthropic", "openrouter")
+        assert "code_review" in cfg.programs
 
     def test_llmops_config_enabled_flag(self):
         """LLMOpsConfig enabled flag controls path selection."""

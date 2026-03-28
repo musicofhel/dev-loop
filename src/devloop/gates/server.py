@@ -1241,12 +1241,13 @@ def run_gate_4_review(
             llmops_cfg = None
 
         if llmops_cfg and llmops_cfg.enabled:
-            # --- DSPy path: use optimized CodeReviewModule via Anthropic API ---
+            # --- DSPy path: use optimized CodeReviewModule via LLMOps config ---
             span.set_attribute("gate.llmops_path", True)
             try:
                 import dspy
 
                 from devloop.llmops.programs import load_program
+                from devloop.llmops.types import OptimizationConfig
 
                 api_key = os.environ.get(llmops_cfg.api_key_env)
                 if not api_key:
@@ -1254,7 +1255,14 @@ def run_gate_4_review(
                         f"LLMOps enabled but {llmops_cfg.api_key_env} not set"
                     )
 
-                dspy.configure(lm=dspy.LM(f"anthropic/{model}", api_key=api_key))
+                # Use model from LLMOps program config (matches optimization artifact)
+                pcfg = llmops_cfg.programs.get("code_review", OptimizationConfig())
+                llmops_model = pcfg.model
+                if llmops_cfg.provider == "openrouter":
+                    model_str = f"openrouter/anthropic/{llmops_model}"
+                else:
+                    model_str = f"anthropic/{llmops_model}"
+                dspy.configure(lm=dspy.LM(model_str, api_key=api_key, max_tokens=2048))
                 module = load_program("code_review")
 
                 criteria = ",".join(review_cfg.get("criteria", []))
