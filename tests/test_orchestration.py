@@ -384,3 +384,137 @@ class TestBuildClaudeMdOverlay:
         overlay = result["overlay_text"]
         assert "In-Process Feedback" in overlay
         assert "run the project's test command" in overlay
+
+
+# ---------------------------------------------------------------------------
+# Model label override tests (#37)
+# ---------------------------------------------------------------------------
+
+
+class TestModelLabelOverride:
+    """Tests for model:<name> label override in select_persona()."""
+
+    def test_model_opus_label_overrides_bug_persona(self):
+        """'model:opus' label overrides bug-fix persona's default sonnet."""
+        result = select_persona(["bug", "model:opus"])
+        assert result["model"] == "opus"
+
+    def test_model_haiku_label_overrides_feature_persona(self):
+        """'model:haiku' label overrides feature persona's default opus."""
+        result = select_persona(["feature", "model:haiku"])
+        assert result["model"] == "haiku"
+
+    def test_invalid_model_label_ignored(self):
+        """'model:gpt4' is not in VALID_MODELS and should be ignored."""
+        result = select_persona(["bug", "model:gpt4"])
+        assert result["model"] == "sonnet"  # bug-fix default
+
+    def test_no_model_label_uses_persona_default(self):
+        """Without model: label, persona default model is used."""
+        result = select_persona(["bug"])
+        assert result["model"] == "sonnet"  # bug-fix default
+
+    def test_model_override_on_fallback_path(self):
+        """model: label works even when no persona matches (fallback)."""
+        result = select_persona(["nonexistent-label", "model:haiku"])
+        assert result["model"] == "haiku"
+
+    def test_model_override_without_other_labels(self):
+        """model: label alone triggers fallback persona with overridden model."""
+        result = select_persona(["model:sonnet"])
+        assert result["model"] == "sonnet"
+
+
+# ---------------------------------------------------------------------------
+# Budget-aware model downgrade tests (#37)
+# ---------------------------------------------------------------------------
+
+
+class TestBudgetAwareModel:
+    """Tests for budget_aware_model()."""
+
+    def test_opus_downgraded_at_80_pct(self):
+        from devloop.orchestration.server import budget_aware_model
+
+        assert budget_aware_model("opus", 80.0) == "sonnet"
+
+    def test_sonnet_downgraded_at_95_pct(self):
+        from devloop.orchestration.server import budget_aware_model
+
+        assert budget_aware_model("sonnet", 95.0) == "haiku"
+
+    def test_opus_downgraded_to_haiku_at_95_pct(self):
+        from devloop.orchestration.server import budget_aware_model
+
+        assert budget_aware_model("opus", 95.0) == "haiku"
+
+    def test_haiku_never_downgraded(self):
+        from devloop.orchestration.server import budget_aware_model
+
+        assert budget_aware_model("haiku", 100.0) == "haiku"
+
+    def test_under_80_no_change(self):
+        from devloop.orchestration.server import budget_aware_model
+
+        assert budget_aware_model("opus", 50.0) == "opus"
+
+    def test_sonnet_unchanged_under_95(self):
+        from devloop.orchestration.server import budget_aware_model
+
+        assert budget_aware_model("sonnet", 80.0) == "sonnet"
+
+
+# ---------------------------------------------------------------------------
+# Overlay + file map integration tests (#26)
+# ---------------------------------------------------------------------------
+
+
+class TestOverlayWithFileMap:
+    """Tests that build_claude_md_overlay includes file map context for real repos."""
+
+    def test_overlay_with_real_repo_has_structure(self):
+        """Overlay for a real git repo includes Repository Structure section."""
+        import os
+
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        # Use the dev-loop repo itself as a test repo
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        result = build_claude_md_overlay(
+            persona="feature",
+            issue_title="Fix a bug",
+            issue_description="Something is broken",
+            repo_path=repo,
+        )
+        overlay = result["overlay_text"]
+        assert "Repository Structure" in overlay
+        assert "tracked files" in overlay
+
+    def test_overlay_without_repo_has_no_structure(self):
+        """Overlay without repo_path does not include Repository Structure."""
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        result = build_claude_md_overlay(
+            persona="feature",
+            issue_title="Fix a bug",
+            issue_description="Something is broken",
+        )
+        overlay = result["overlay_text"]
+        assert "Repository Structure" not in overlay
+
+    def test_overlay_with_scope_hints(self):
+        """Overlay includes Focus Areas when issue mentions file paths from the repo."""
+        import os
+
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        result = build_claude_md_overlay(
+            persona="bug-fix",
+            issue_title="Fix bug in src/devloop/gates/server.py",
+            issue_description="The gate logic in src/devloop/gates/server.py is wrong",
+            repo_path=repo,
+        )
+        overlay = result["overlay_text"]
+        assert "Focus Areas" in overlay
+        assert "src/devloop/gates/server.py" in overlay

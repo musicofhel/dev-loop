@@ -26,3 +26,6 @@ quality_gates:
   cost:
     enabled: true
     ceiling_usd: 2.00
+
+context:
+  file_map: false  # Small repo, not needed

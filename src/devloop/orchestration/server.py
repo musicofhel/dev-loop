@@ -25,6 +25,26 @@ logger = logging.getLogger(__name__)
 
 VALID_MODELS = {"opus", "sonnet", "haiku"}
 
+
+def _extract_model_override(labels: list[str]) -> str | None:
+    """Extract model override from labels like 'model:opus'."""
+    for lbl in labels:
+        if lbl.startswith("model:"):
+            candidate = lbl.split(":", 1)[1]
+            if candidate in VALID_MODELS:
+                return candidate
+    return None
+
+
+def budget_aware_model(model: str, budget_pct: float) -> str:
+    """Downgrade model when budget is tight."""
+    if budget_pct >= 95 and model in ("opus", "sonnet"):
+        return "haiku"
+    if budget_pct >= 80 and model == "opus":
+        return "sonnet"
+    return model
+
+
 from devloop.orchestration.types import (
     ClaudeOverlay,
     CleanupResult,
@@ -283,13 +303,18 @@ def select_persona(labels: list[str]) -> dict:
             span.set_attribute("persona.fallback", "feature")
             personas = config.get("personas", {})
             fallback = personas.get("feature", {})
+            fallback_model = fallback.get("model", "opus")
+            override = _extract_model_override(labels)
+            if override:
+                fallback_model = override
+                span.set_attribute("persona.model_override", override)
             persona = PersonaConfig(
                 name="feature",
                 labels=fallback.get("labels", ["feature"]),
                 claude_md_overlay=fallback.get("claude_md_overlay", ""),
                 cost_ceiling_default=fallback.get("cost_ceiling_default", 5.00),
                 retry_max=fallback.get("retry_max", 1),
-                model=fallback.get("model", "opus"),
+                model=fallback_model,
                 max_turns_default=fallback.get("max_turns_default", 15),
                 max_context_pct=fallback.get("max_context_pct", 75),
             )
@@ -308,6 +333,12 @@ def select_persona(labels: list[str]) -> dict:
                 name, model,
             )
             model = "sonnet"
+
+        # Check for model override from labels (e.g. "model:opus")
+        override = _extract_model_override(labels)
+        if override:
+            model = override
+            span.set_attribute("persona.model_override", override)
 
         span.set_attribute("persona.model", model)
         span.set_attribute("persona.cost_ceiling", data.get("cost_ceiling_default", 1.00))
@@ -508,6 +539,41 @@ def build_claude_md_overlay(
         if project_type in _LOCK_FILE_RULES:
             lines.append(_LOCK_FILE_RULES[project_type])
             lines.append("")
+
+        # #26: Large repo context — tiered file map + scope hints
+        if repo_path:
+            try:
+                from devloop.orchestration.file_map import (
+                    _list_files,
+                    extract_scope_hints,
+                    generate_directory_summary,
+                )
+
+                dir_summary = generate_directory_summary(repo_path)
+                if dir_summary:
+                    lines.append("## Repository Structure")
+                    lines.append("")
+                    lines.append(dir_summary)
+                    lines.append("")
+
+                    known_paths = _list_files(repo_path)
+                    scope_hints = extract_scope_hints(
+                        issue_title, issue_description, known_paths,
+                    )
+                    if scope_hints:
+                        lines.append("## Focus Areas")
+                        lines.append("")
+                        lines.append(
+                            "The following paths appear relevant to this issue — "
+                            "start your investigation here:"
+                        )
+                        lines.append("")
+                        for hint in scope_hints:
+                            lines.append(f"- `{hint}`")
+                        lines.append("")
+                        span.set_attribute("overlay.scope_hints", len(scope_hints))
+            except Exception:
+                logger.debug("Failed to generate file map context", exc_info=True)
 
         overlay_text = "\n".join(lines)
 

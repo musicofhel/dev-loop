@@ -8,3 +8,8 @@ budget_throttle:
   80_percent: P1_and_above_only
   95_percent: P0_only
   100_percent: pause_all
+
+weekly_budget:
+  max_turns: 1400
+  max_input_tokens: 35000000
+  max_output_tokens: 7000000

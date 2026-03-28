@@ -125,10 +125,17 @@ class BudgetThrottle(BaseModel):
     hundred_percent: str = Field(alias="100_percent", default="")
 
 
+class WeeklyBudget(BaseModel):
+    max_turns: int = Field(ge=1, default=1400)
+    max_input_tokens: int = Field(ge=1, default=35_000_000)
+    max_output_tokens: int = Field(ge=1, default=7_000_000)
+
+
 class SchedulingConfig(BaseModel):
     max_concurrent_agents: int = Field(ge=1)
     priority_order: list[str]
     budget_throttle: BudgetThrottle = Field(default_factory=BudgetThrottle)
+    weekly_budget: WeeklyBudget = Field(default_factory=WeeklyBudget)
 
 
 # ---------------------------------------------------------------------------

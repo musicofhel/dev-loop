@@ -22,6 +22,10 @@ quality_gates:
     enabled: true
     ceiling_usd: 3.00
 
+context:
+  file_map: true
+  max_files: 500
+
 tools:
   test_runner: "npm test"
   linter: "npx eslint"

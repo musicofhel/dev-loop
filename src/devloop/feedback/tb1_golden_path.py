@@ -255,6 +255,22 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 max_retries = persona_result.get("retry_max", 2)
                 max_context_pct = persona_result.get("max_context_pct", 75)
 
+                # Budget-aware model downgrade (#37)
+                from devloop.orchestration.server import budget_aware_model
+                from devloop.orchestration.scheduler import (
+                    get_budget_usage_pct,
+                    load_scheduler_config,
+                )
+
+                _sched_cfg = load_scheduler_config()
+                _budget_pct = get_budget_usage_pct(_sched_cfg)
+                original_model = persona_result.get("model", "sonnet")
+                downgraded_model = budget_aware_model(original_model, _budget_pct)
+                if downgraded_model != original_model:
+                    persona_result["model"] = downgraded_model
+                    persona_span.set_attribute("tb1.model_downgraded_from", original_model)
+                    persona_span.set_attribute("tb1.budget_pct", _budget_pct)
+
                 persona_span.set_attribute("tb1.persona", persona_name)
                 persona_span.set_attribute("tb1.max_retries", max_retries)
                 persona_span.set_attribute("tb1.max_context_pct", max_context_pct)

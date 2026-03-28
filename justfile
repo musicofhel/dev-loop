@@ -142,6 +142,14 @@ tb7 REPO_PATH:
     @echo "Repo: {{REPO_PATH}}"
     uv run python -c "from devloop.feedback.pipeline import run_tb7; import json; print(json.dumps(run_tb7('{{REPO_PATH}}'), indent=2))"
 
+# Run the priority scheduler (multi-issue autonomous mode)
+schedule REPO_PATH:
+    uv run python -m devloop.orchestration.scheduler {{REPO_PATH}}
+
+# Check scheduler status
+schedule-status:
+    uv run python -c "from devloop.orchestration.scheduler import count_active_agents, get_budget_usage_pct, load_scheduler_config; c = load_scheduler_config(); print(f'Active: {count_active_agents()}, Budget: {get_budget_usage_pct(c):.1f}%')"
+
 # Stress test: run all 6 TBs N times (default 30)
 stress *ARGS:
     uv run python scripts/stress-test.py {{ARGS}}
