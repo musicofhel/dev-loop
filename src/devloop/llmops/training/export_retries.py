@@ -16,13 +16,18 @@ from pathlib import Path
 
 
 def _is_retry_prompt(content: str) -> bool:
-    """Detect if content is a retry prompt (failure context + fix instructions)."""
+    """Detect if content is a retry prompt from build_retry_prompt()."""
     lower = content.lower()
-    return (
-        ("fix the issues" in lower or "retry" in lower or "gate" in lower)
-        and ("fail" in lower or "error" in lower)
-        and len(content) > 100
-    )
+    # Must have the footer instruction (unique to retry prompts)
+    if "fix the issues listed above" not in lower:
+        return False
+    # Must have structured failure sections
+    if "### failure" not in lower:
+        return False
+    # Exclude Gate 4 review prompts
+    if "senior code reviewer" in lower:
+        return False
+    return len(content) > 100
 
 
 def _extract_retry_data(events: list[dict]) -> list[dict]:
@@ -57,10 +62,10 @@ def _extract_retry_data(events: list[dict]) -> list[dict]:
             if not _is_retry_prompt(content) and len(content) > 20:
                 original_task = content[:2000]
 
-        # Detect gate failure reports
+        # Detect gate failure reports (exclude Gate 4 review prompts)
         lower = content.lower()
-        if "gate" in lower and ("fail" in lower or "critical" in lower):
-            if "findings" in content.lower() or "error" in content.lower():
+        if "gate" in lower and ("fail" in lower or "did not pass" in lower):
+            if "senior code reviewer" not in lower:
                 gate_failures.append({
                     "content": content[:3000],
                     "index": i,

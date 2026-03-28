@@ -277,14 +277,37 @@ class TestExportReviewParser:
 class TestExportRetryParser:
     """Tests for retry prompt detection."""
 
-    def test_detects_retry_prompt(self):
-        """_is_retry_prompt identifies retry-like content."""
+    REAL_RETRY_PROMPT = (
+        "## Issue: Add input validation\n\n"
+        "### Failure 1: gate_4_review quality gate\n\n"
+        "Error: Critical findings detected\n\n"
+        "Failure details:\n"
+        "  - [CRITICAL] Missing input validation on user-supplied data\n\n"
+        "Please fix the issues listed above and try again. "
+        "Do not start over — your previous changes are still in the worktree. "
+        "Make the minimal change needed to pass the gates."
+    )
+
+    GATE4_REVIEW_PROMPT = (
+        "You are a senior code reviewer performing an automated quality gate check.\n\n"
+        "## Issue Context\n**Title:** Add factorial function\n\n"
+        "## Review Criteria\nCheck the diff for the following issues:\n"
+        "  - race_conditions\n  - memory_leaks\n  - logic_errors\n"
+        "  - missing_error_handling_at_boundaries\n  - performance_antipatterns\n\n"
+        "## Diff to Review\n```\ndiff --git a/calc.py b/calc.py\n```"
+    )
+
+    def test_detects_real_retry_prompt(self):
+        """_is_retry_prompt identifies build_retry_prompt() output."""
         from devloop.llmops.training.export_retries import _is_retry_prompt
 
-        assert _is_retry_prompt(
-            "The gate failed with errors. Please fix the issues and retry the build. "
-            "The test suite reported 3 failures in the authentication module."
-        )
+        assert _is_retry_prompt(self.REAL_RETRY_PROMPT)
+
+    def test_rejects_gate4_review_prompt(self):
+        """Gate 4 review prompts must not be detected as retry prompts."""
+        from devloop.llmops.training.export_retries import _is_retry_prompt
+
+        assert not _is_retry_prompt(self.GATE4_REVIEW_PROMPT)
 
     def test_rejects_short_content(self):
         """Short messages are not retry prompts."""
