@@ -28,6 +28,7 @@ stack-down:
 # Check service health
 stack-health:
     @echo "=== OpenObserve ===" && curl -s http://localhost:5080/healthz && echo
+    @echo "=== Langfuse ===" && curl -s http://localhost:3001/api/public/health 2>/dev/null && echo || echo "  NOT RUNNING"
     @echo "=== Beads ===" && br stats --quiet 2>/dev/null && echo "  OK" || echo "  NOT INITIALIZED"
     @echo "=== Anthropic API ===" && \
         if [ -z "${ANTHROPIC_API_KEY:-}" ]; then \
@@ -431,6 +432,36 @@ dl-stop:
 # Daemon status
 dl-status:
     dl status
+
+# ─── LLMOps (Layer 7) ───
+
+# Export training data from session history
+llmops-export:
+    @echo "Exporting training data..."
+    uv run python -m devloop.llmops.training.export_reviews
+    uv run python -m devloop.llmops.training.export_retries
+    uv run python -m devloop.llmops.training.export_personas
+    @echo "Training data exported to ~/.local/share/dev-loop/llmops/training/"
+
+# Run GEPA optimization for a DSPy program
+# Usage: just llmops-optimize code_review
+llmops-optimize PROGRAM:
+    @echo "Running GEPA optimization for {{PROGRAM}}..."
+    uv run python -m devloop.llmops.optimize {{PROGRAM}}
+
+# Check optimization status for all programs
+llmops-status:
+    uv run python -c "from devloop.llmops.server import list_programs; import json; print(json.dumps(list_programs(), indent=2))"
+
+# Start full stack (OpenObserve + Langfuse)
+stack-up-full:
+    docker compose up -d
+    @echo "OpenObserve: http://localhost:5080"
+    @echo "Langfuse:    http://localhost:3001"
+
+# Stop full stack
+stack-down-full:
+    docker compose down
 
 # ─── Python / uv ───
 

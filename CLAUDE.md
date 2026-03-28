@@ -4,12 +4,13 @@
 Developer tooling harness. Not an app. Not a library. A composition of tools wired together with config, MCP servers, and thin glue code.
 
 ## Build Philosophy
-- **TRACER BULLETS ONLY.** Never build a layer horizontally. Every change must cut vertically through all six layers: intake → orchestration → runtime → quality gates → observability → feedback loop.
+- **TRACER BULLETS ONLY.** Never build a layer horizontally. Every change must cut vertically through all layers: intake → orchestration → runtime → quality gates → observability → feedback loop (→ llmops when enabled).
 - To add a feature: define the tracer bullet first (docs/tracer-bullets.md), then implement the thinnest possible vertical slice.
 - Each tracer bullet should be runnable end-to-end within a single `just tb<N>` command.
 
 ## Architecture
-- Six layers (see docs/layers/*.md for intent)
+- Seven layers (see docs/layers/*.md for intent): intake → orchestration → runtime → quality gates → observability → feedback loop → llmops
+- Layer 7 (LLMOps): DSPy/GEPA prompt optimization. Feature-flagged via `config/llmops.yaml` (`enabled: false` default). See `docs/layers/07-llmops.md`.
 - MCP servers are the integration boundary between layers
 - OpenTelemetry is the instrumentation standard — every layer emits spans
 - Every tool must be individually bypassable (escape hatches, not locked gates)

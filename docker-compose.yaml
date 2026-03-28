@@ -1,0 +1,42 @@
+# dev-loop full stack: OpenObserve (L5 observability) + Langfuse (L7 LLMOps)
+# Usage: docker compose up -d  |  just stack-up-full
+
+services:
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    ports:
+      - "5080:5080"
+    volumes:
+      - dev-loop-oo-data:/data
+    environment:
+      ZO_ROOT_USER_EMAIL: admin@dev-loop.local
+      ZO_ROOT_USER_PASSWORD: devloop123
+    restart: unless-stopped
+
+  langfuse-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse-db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    ports:
+      - "3001:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: dev-loop-langfuse-secret
+      NEXTAUTH_URL: http://localhost:3001
+      SALT: dev-loop-salt
+      TELEMETRY_ENABLED: "false"
+    depends_on:
+      - langfuse-db
+    restart: unless-stopped
+
+volumes:
+  dev-loop-oo-data:
+  langfuse-db-data:

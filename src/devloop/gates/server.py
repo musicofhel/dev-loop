@@ -1231,149 +1231,202 @@ def run_gate_4_review(
         model = review_cfg.get("model", "claude-sonnet-4-6")
         severity_levels = review_cfg.get("severity_levels", {})
 
-        prompt = _build_review_prompt(diff_text, issue_title, issue_description, config)
-
-        # --- Call Claude via CLI (uses existing Claude Code auth) ---
+        # --- LLMOps feature flag: DSPy path vs CLI path ---
+        _used_llmops = False
         try:
-            claude_path = shutil.which("claude")
-            if claude_path is None:
-                raise FileNotFoundError(
-                    "claude CLI not found on PATH. "
-                    "Install it: https://docs.anthropic.com/en/docs/claude-code"
+            from devloop.llmops.server import _load_llmops_config
+
+            llmops_cfg = _load_llmops_config()
+        except ImportError:
+            llmops_cfg = None
+
+        if llmops_cfg and llmops_cfg.enabled:
+            # --- DSPy path: use optimized CodeReviewModule via Anthropic API ---
+            span.set_attribute("gate.llmops_path", True)
+            try:
+                import dspy
+
+                from devloop.llmops.programs import load_program
+
+                api_key = os.environ.get(llmops_cfg.api_key_env)
+                if not api_key:
+                    raise RuntimeError(
+                        f"LLMOps enabled but {llmops_cfg.api_key_env} not set"
+                    )
+
+                dspy.configure(lm=dspy.LM(f"anthropic/{model}", api_key=api_key))
+                module = load_program("code_review")
+
+                criteria = ",".join(review_cfg.get("criteria", []))
+                result = module(
+                    diff=diff_text,
+                    issue_context=f"{issue_title}\n{issue_description}",
+                    review_criteria=criteria,
                 )
 
-            review_env = os.environ.copy()
-            review_env.pop("CLAUDECODE", None)
+                review_findings = json.loads(result.findings_json)
+                if not isinstance(review_findings, list):
+                    raise ValueError("findings_json is not a JSON array")
 
-            review_schema = json.dumps({
-                "type": "object",
-                "properties": {
-                    "findings": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "severity": {"type": "string"},
-                                "message": {"type": "string"},
-                                "file": {"type": "string"},
-                                "line": {"type": "integer"},
-                                "rule": {"type": "string"},
-                            },
-                            "required": ["severity", "message"],
-                        },
-                    },
-                    "summary": {"type": "string"},
-                },
-                "required": ["findings"],
-            })
+                for rf in review_findings:
+                    findings.append(
+                        Finding(
+                            severity=rf.get("severity", "suggestion"),
+                            message=rf.get("message", ""),
+                            file=rf.get("file"),
+                            line=rf.get("line"),
+                            rule=rf.get("rule"),
+                        )
+                    )
+                _used_llmops = True
 
-            review_result = subprocess.run(
-                [
-                    claude_path,
-                    "--print",
-                    "--model", model,
-                    "--output-format", "json",
-                    "--json-schema", review_schema,
-                ],
-                input=prompt,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                env=review_env,
-            )
-
-            response_text = review_result.stdout.strip()
-            span.set_attribute("gate.review_model", model)
-
-            if review_result.returncode != 0:
-                raise RuntimeError(
-                    f"claude --print exited with code {review_result.returncode}: "
-                    f"{review_result.stderr[:500]}"
-                )
-
-        except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired) as exc:
-            elapsed = time.monotonic() - start
-            error_msg = f"Claude review error: {exc}"
-            span.set_status(trace.StatusCode.ERROR, error_msg)
-            return GateResult(
-                gate_name="gate_4_review",
-                passed=False,
-                findings=[Finding(severity="critical", message=error_msg)],
-                duration_seconds=round(elapsed, 3),
-                error=error_msg,
-            ).model_dump()
-
-        # --- Parse response JSON ---
-        # --output-format json returns NDJSON (or a JSON array).
-        # Extract structured_output from the {"type":"result"} object.
-        parsed = None
-        try:
-            # Try as JSON array first
-            if response_text.startswith("["):
-                objects = json.loads(response_text)
-            else:
-                # NDJSON: one JSON object per line.
-                # Wrap each line in try/except — truncated lines from
-                # partial output shouldn't crash the whole parser (L5 fix).
-                objects = []
-                for line in response_text.split("\n"):
-                    if not line.strip():
-                        continue
-                    try:
-                        objects.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-
-            # Find the result object with structured_output
-            for obj in objects:
-                if obj.get("type") == "result" and "structured_output" in obj:
-                    parsed = obj["structured_output"]
-                    break
-
-            # Fallback: try the "result" text field
-            if parsed is None:
-                for obj in objects:
-                    if obj.get("type") == "result" and obj.get("result"):
-                        try:
-                            parsed = json.loads(obj["result"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-                        break
-
-        except (json.JSONDecodeError, TypeError):
-            # Last resort: try to find a raw JSON object in the text
-            brace_start = response_text.find("{")
-            brace_end = response_text.rfind("}")
-            if brace_start != -1 and brace_end != -1:
-                try:
-                    parsed = json.loads(response_text[brace_start : brace_end + 1])
-                except json.JSONDecodeError:
-                    pass
-
-        if parsed is None:
-            findings.append(
-                Finding(
-                    severity="critical",
-                    message=(
-                        "Could not parse review response as JSON. "
-                        f"Raw response: {response_text[:500]}"
-                    ),
-                )
-            )
-            passed = False
-        else:
-            # Extract findings from parsed response
-            review_findings = parsed.get("findings", [])
-            for rf in review_findings:
+            except Exception as dspy_exc:
+                # Fall back to CLI path on any DSPy failure
+                span.set_attribute("gate.llmops_fallback", True)
+                span.set_attribute("gate.llmops_error", str(dspy_exc)[:200])
                 findings.append(
                     Finding(
-                        severity=rf.get("severity", "suggestion"),
-                        message=rf.get("message", ""),
-                        file=rf.get("file"),
-                        line=rf.get("line"),
-                        rule=rf.get("rule"),
+                        severity="info",
+                        message=f"LLMOps DSPy path failed, falling back to CLI: {dspy_exc}",
                     )
                 )
+
+        if not _used_llmops:
+            # --- CLI path: existing claude --print flow (unchanged) ---
+            span.set_attribute("gate.llmops_path", False)
+
+            prompt = _build_review_prompt(diff_text, issue_title, issue_description, config)
+
+            try:
+                claude_path = shutil.which("claude")
+                if claude_path is None:
+                    raise FileNotFoundError(
+                        "claude CLI not found on PATH. "
+                        "Install it: https://docs.anthropic.com/en/docs/claude-code"
+                    )
+
+                review_env = os.environ.copy()
+                review_env.pop("CLAUDECODE", None)
+
+                review_schema = json.dumps({
+                    "type": "object",
+                    "properties": {
+                        "findings": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "severity": {"type": "string"},
+                                    "message": {"type": "string"},
+                                    "file": {"type": "string"},
+                                    "line": {"type": "integer"},
+                                    "rule": {"type": "string"},
+                                },
+                                "required": ["severity", "message"],
+                            },
+                        },
+                        "summary": {"type": "string"},
+                    },
+                    "required": ["findings"],
+                })
+
+                review_result = subprocess.run(
+                    [
+                        claude_path,
+                        "--print",
+                        "--model", model,
+                        "--output-format", "json",
+                        "--json-schema", review_schema,
+                    ],
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    env=review_env,
+                )
+
+                response_text = review_result.stdout.strip()
+                span.set_attribute("gate.review_model", model)
+
+                if review_result.returncode != 0:
+                    raise RuntimeError(
+                        f"claude --print exited with code {review_result.returncode}: "
+                        f"{review_result.stderr[:500]}"
+                    )
+
+            except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired) as exc:
+                elapsed = time.monotonic() - start
+                error_msg = f"Claude review error: {exc}"
+                span.set_status(trace.StatusCode.ERROR, error_msg)
+                return GateResult(
+                    gate_name="gate_4_review",
+                    passed=False,
+                    findings=[Finding(severity="critical", message=error_msg)],
+                    duration_seconds=round(elapsed, 3),
+                    error=error_msg,
+                ).model_dump()
+
+            # --- Parse response JSON ---
+            parsed = None
+            try:
+                if response_text.startswith("["):
+                    objects = json.loads(response_text)
+                else:
+                    objects = []
+                    for line in response_text.split("\n"):
+                        if not line.strip():
+                            continue
+                        try:
+                            objects.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+
+                for obj in objects:
+                    if obj.get("type") == "result" and "structured_output" in obj:
+                        parsed = obj["structured_output"]
+                        break
+
+                if parsed is None:
+                    for obj in objects:
+                        if obj.get("type") == "result" and obj.get("result"):
+                            try:
+                                parsed = json.loads(obj["result"])
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                            break
+
+            except (json.JSONDecodeError, TypeError):
+                brace_start = response_text.find("{")
+                brace_end = response_text.rfind("}")
+                if brace_start != -1 and brace_end != -1:
+                    try:
+                        parsed = json.loads(response_text[brace_start : brace_end + 1])
+                    except json.JSONDecodeError:
+                        pass
+
+            if parsed is None:
+                findings.append(
+                    Finding(
+                        severity="critical",
+                        message=(
+                            "Could not parse review response as JSON. "
+                            f"Raw response: {response_text[:500]}"
+                        ),
+                    )
+                )
+                passed = False
+            else:
+                review_findings = parsed.get("findings", [])
+                for rf in review_findings:
+                    findings.append(
+                        Finding(
+                            severity=rf.get("severity", "suggestion"),
+                            message=rf.get("message", ""),
+                            file=rf.get("file"),
+                            line=rf.get("line"),
+                            rule=rf.get("rule"),
+                        )
+                    )
 
         # --- Determine pass/fail based on severity levels ---
         passed = True
