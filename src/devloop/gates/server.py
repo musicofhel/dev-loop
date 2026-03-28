@@ -743,6 +743,27 @@ _LOCK_FILE_PAIRS = [
     ("composer.json", "composer.lock"),
 ]
 
+# Migration file patterns (glob-style, matched against changed file paths)
+_MIGRATION_FILE_PATTERNS = [
+    "prisma/migrations/*",
+    "prisma/migrations/**/*",
+    "alembic/versions/*",
+    "alembic/versions/**/*",
+    "db/migrate/*",
+    "db/migrate/**/*",
+    "migrations/*",
+    "migrations/**/*",
+]
+
+# Destructive SQL keywords to detect within migration files
+_DESTRUCTIVE_MIGRATION_SQL = [
+    (r"\bDROP\b", "DROP"),
+    (r"\bDELETE\b", "DELETE"),
+    (r"\bTRUNCATE\b", "TRUNCATE"),
+    (r"\bALTER\s+TABLE\s+\w+\s+DROP\b", "ALTER TABLE ... DROP"),
+    (r"\bRENAME\b", "RENAME"),
+]
+
 
 @mcp.tool(
     description=(
@@ -813,6 +834,55 @@ def run_gate_25_dangerous_ops(worktree_path: str) -> dict:
                             rule="dangerous_sql",
                         )
                     )
+
+        # --- 1b. Migration file detection ---
+        for changed_file in changed_files:
+            is_migration = any(
+                fnmatch.fnmatch(changed_file, pat) for pat in _MIGRATION_FILE_PATTERNS
+            )
+            if not is_migration:
+                continue
+
+            # Get the file-specific diff to check for destructive SQL
+            file_diff_result = _run_cmd(
+                ["git", "diff", "HEAD~1", "--", changed_file], cwd=worktree
+            )
+            file_diff = file_diff_result.stdout if file_diff_result.stdout else ""
+            # Also check staged diff
+            if not file_diff:
+                file_diff_result = _run_cmd(
+                    ["git", "diff", "--cached", "--", changed_file], cwd=worktree
+                )
+                file_diff = file_diff_result.stdout if file_diff_result.stdout else ""
+
+            has_destructive = False
+            for sql_pattern, sql_desc in _DESTRUCTIVE_MIGRATION_SQL:
+                if re.search(sql_pattern, file_diff, re.IGNORECASE):
+                    has_destructive = True
+                    findings.append(
+                        Finding(
+                            severity="critical",
+                            message=(
+                                f"Destructive migration: {sql_desc} in {changed_file} "
+                                "— requires human review before merge"
+                            ),
+                            file=changed_file,
+                            rule="destructive_migration",
+                        )
+                    )
+
+            if not has_destructive:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        message=(
+                            f"Migration file changed: {changed_file} "
+                            "— additive migration, review recommended"
+                        ),
+                        file=changed_file,
+                        rule="migration_file",
+                    )
+                )
 
         # --- 2. CI/CD config changes ---
         for changed_file in changed_files:

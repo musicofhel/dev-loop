@@ -336,12 +336,82 @@ def select_persona(labels: list[str]) -> dict:
     ),
     tags={"orchestration", "config"},
 )
+def _detect_project_type(worktree: Path) -> str:
+    """Detect whether the worktree is a Node/Python/Rust project."""
+    if (worktree / "package.json").exists():
+        return "node"
+    if (worktree / "pyproject.toml").exists():
+        return "python"
+    if (worktree / "Cargo.toml").exists():
+        return "rust"
+    return "unknown"
+
+
+def _backpressure_rules(project_type: str) -> str:
+    """Generate in-process feedback rules based on project type."""
+    common = (
+        "## In-Process Feedback\n\n"
+        "Run checks frequently during your work — do not wait until the end.\n\n"
+    )
+    if project_type == "node":
+        return common + (
+            "- After editing TypeScript/JavaScript files, run `npx tsc --noEmit` to catch type errors.\n"
+            "- After completing a logical group of edits, run `npm test` on affected test files.\n"
+            "- Fix any errors before moving to the next file.\n"
+        )
+    if project_type == "python":
+        return common + (
+            "- After editing Python files, run `uv run pytest --tb=short -q` on affected test files.\n"
+            "- If the project uses type checking (mypy/pyright), run it after edits.\n"
+            "- Fix any errors before moving to the next file.\n"
+        )
+    if project_type == "rust":
+        return common + (
+            "- After editing Rust files, run `cargo check` to catch compilation errors.\n"
+            "- After completing a logical group of edits, run `cargo test` on affected modules.\n"
+            "- Fix any errors before moving to the next file.\n"
+        )
+    return common + (
+        "- After each group of edits, run the project's test command to catch errors early.\n"
+        "- Fix any errors before moving to the next file.\n"
+    )
+
+
+_ANTI_HALLUCINATION_RULES = (
+    "## Code Verification\n\n"
+    "- Always read a function's implementation before calling it. "
+    "Never assume what a function does from its name alone.\n"
+    "- Before importing a module, verify it exists in the project.\n"
+    "- Before using an API endpoint, verify it exists in the route definitions.\n"
+    "- If you are unsure whether a function/class/module exists, search for it first.\n"
+)
+
+_LOCK_FILE_RULES = {
+    "node": (
+        "## Lock File Rules\n\n"
+        "- After modifying `package.json`, run `npm install` immediately "
+        "to keep `package-lock.json` in sync.\n"
+        "- Do not run `npm update` or `npm audit fix` without explicit approval.\n"
+    ),
+    "python": (
+        "## Lock File Rules\n\n"
+        "- After modifying `pyproject.toml` dependencies, run `uv lock` "
+        "to keep the lock file in sync.\n"
+    ),
+    "rust": (
+        "## Lock File Rules\n\n"
+        "- After modifying `Cargo.toml`, run `cargo check` to regenerate `Cargo.lock`.\n"
+    ),
+}
+
+
 def build_claude_md_overlay(
     persona: str,
     issue_title: str,
     issue_description: str,
     issue_id: str = "",
     max_context_pct: int = 75,
+    repo_path: str = "",
 ) -> dict:
     """Generate CLAUDE.md overlay text from persona + issue context."""
     with tracer.start_as_current_span(
@@ -417,6 +487,26 @@ def build_claude_md_overlay(
         deny_rules = generate_deny_rules()
         if deny_rules:
             lines.append(deny_rules)
+            lines.append("")
+
+        # --- Edge case hardening rules ---
+        # Detect project type for context-aware rules
+        project_type = "unknown"
+        if repo_path:
+            project_type = _detect_project_type(Path(repo_path))
+        span.set_attribute("overlay.project_type", project_type)
+
+        # #28: In-process backpressure
+        lines.append(_backpressure_rules(project_type))
+        lines.append("")
+
+        # #35: Anti-hallucination
+        lines.append(_ANTI_HALLUCINATION_RULES)
+        lines.append("")
+
+        # #34: Lock file consistency
+        if project_type in _LOCK_FILE_RULES:
+            lines.append(_LOCK_FILE_RULES[project_type])
             lines.append("")
 
         overlay_text = "\n".join(lines)

@@ -272,3 +272,115 @@ class TestBuildClaudeMdOverlay:
         # The overlay should reference denied file patterns
         overlay = result["overlay_text"]
         assert "NEVER" in overlay or "deny" in overlay.lower() or "Do not" in overlay
+
+    def test_overlay_has_backpressure_rules_for_node(self, tmp_path):
+        """Node project overlay includes tsc --noEmit backpressure rule."""
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        repo = tmp_path / "node-project"
+        repo.mkdir()
+        (repo / "package.json").write_text("{}")
+
+        result = build_claude_md_overlay(
+            persona="feature",
+            issue_title="Add search",
+            issue_description="Implement search",
+            repo_path=str(repo),
+        )
+        overlay = result["overlay_text"]
+        assert "tsc --noEmit" in overlay
+        assert "In-Process Feedback" in overlay
+
+    def test_overlay_has_backpressure_rules_for_python(self, tmp_path):
+        """Python project overlay includes pytest backpressure rule."""
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        repo = tmp_path / "python-project"
+        repo.mkdir()
+        (repo / "pyproject.toml").write_text("[project]\nname='test'")
+
+        result = build_claude_md_overlay(
+            persona="bug-fix",
+            issue_title="Fix crash",
+            issue_description="Fix null crash",
+            repo_path=str(repo),
+        )
+        overlay = result["overlay_text"]
+        assert "pytest" in overlay
+        assert "In-Process Feedback" in overlay
+
+    def test_overlay_has_backpressure_rules_for_rust(self, tmp_path):
+        """Rust project overlay includes cargo check backpressure rule."""
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        repo = tmp_path / "rust-project"
+        repo.mkdir()
+        (repo / "Cargo.toml").write_text("[package]\nname='test'")
+
+        result = build_claude_md_overlay(
+            persona="feature",
+            issue_title="Add feature",
+            issue_description="New feature",
+            repo_path=str(repo),
+        )
+        overlay = result["overlay_text"]
+        assert "cargo check" in overlay
+
+    def test_overlay_has_anti_hallucination_rules(self):
+        """Overlay includes anti-hallucination 'read before call' rules."""
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        result = build_claude_md_overlay(
+            persona="feature",
+            issue_title="Add feature",
+            issue_description="New feature",
+        )
+        overlay = result["overlay_text"]
+        assert "read a function" in overlay.lower() or "Code Verification" in overlay
+
+    def test_overlay_has_lock_file_rules_for_node(self, tmp_path):
+        """Node project overlay includes npm install lock file rule."""
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        repo = tmp_path / "node-project"
+        repo.mkdir()
+        (repo / "package.json").write_text("{}")
+
+        result = build_claude_md_overlay(
+            persona="feature",
+            issue_title="Add dep",
+            issue_description="Add dependency",
+            repo_path=str(repo),
+        )
+        overlay = result["overlay_text"]
+        assert "npm install" in overlay
+        assert "Lock File" in overlay
+
+    def test_overlay_no_lock_rules_for_unknown_project(self, tmp_path):
+        """Unknown project type → no lock file rules section."""
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        repo = tmp_path / "unknown-project"
+        repo.mkdir()
+
+        result = build_claude_md_overlay(
+            persona="feature",
+            issue_title="Add feature",
+            issue_description="New feature",
+            repo_path=str(repo),
+        )
+        overlay = result["overlay_text"]
+        assert "Lock File Rules" not in overlay
+
+    def test_overlay_without_repo_path_still_has_backpressure(self):
+        """Without repo_path, overlay still has generic backpressure rules."""
+        from devloop.orchestration.server import build_claude_md_overlay
+
+        result = build_claude_md_overlay(
+            persona="feature",
+            issue_title="Add feature",
+            issue_description="New feature",
+        )
+        overlay = result["overlay_text"]
+        assert "In-Process Feedback" in overlay
+        assert "run the project's test command" in overlay

@@ -481,11 +481,12 @@ class TestTB1Escalation:
         assert result["success"] is False
         assert result["phase"] == "escalated"
         assert result.get("suggested_fix") == "Add rule: always run tests before commit"
-        # br comments add should have been called
-        tb1_mocks.subprocess_run.assert_called_once()
-        args = tb1_mocks.subprocess_run.call_args[0][0]
-        assert "br" in args
-        assert "comments" in args
+        # br comments add should have been called (among other subprocess.run calls)
+        br_calls = [
+            c for c in tb1_mocks.subprocess_run.call_args_list
+            if c[0] and "br" in c[0][0] and "comments" in c[0][0]
+        ]
+        assert len(br_calls) == 1
 
     def test_escalation_suggested_fix_failure_silent(self, tb1_mocks):
         self._exhaust_retries(tb1_mocks)
@@ -539,3 +540,50 @@ class TestTB1Cleanup:
         assert result["phase"] == "error"
         tb1_mocks.stop_heartbeat.assert_called_once()
         tb1_mocks.cleanup_worktree.assert_called_once()
+
+
+# ===========================================================================
+# TestTB1ZeroDiff — zero-diff detection (#31)
+# ===========================================================================
+
+
+class TestTB1ZeroDiff:
+    """Tests for zero-diff detection in TB-1 pipeline."""
+
+    def test_zero_diff_returns_needs_verification(self, tb1_mocks):
+        """Agent completes with no changes → phase=zero_diff, success=False."""
+        import subprocess as real_subprocess
+
+        tb1_mocks.subprocess_run.return_value = real_subprocess.CompletedProcess(
+            args=["git", "diff"], returncode=0, stdout="", stderr=""
+        )
+        result = _run_tb1()
+        assert result["success"] is False
+        assert result["phase"] == "zero_diff"
+        assert "zero changes" in result["error"].lower()
+        # Gates should NOT have been called
+        tb1_mocks.run_all_gates.assert_not_called()
+
+    def test_diff_present_proceeds_to_gates(self, tb1_mocks):
+        """Agent produces changes → zero-diff check passes, gates run."""
+        import subprocess as real_subprocess
+
+        tb1_mocks.subprocess_run.return_value = real_subprocess.CompletedProcess(
+            args=["git", "diff"], returncode=0,
+            stdout=" 1 file changed, 3 insertions(+)", stderr=""
+        )
+        result = _run_tb1()
+        assert result["success"] is True
+        assert result["phase"] != "zero_diff"
+        tb1_mocks.run_all_gates.assert_called_once()
+
+    def test_zero_diff_includes_session_id(self, tb1_mocks):
+        """Zero-diff result includes the session capture from Phase 7c."""
+        import subprocess as real_subprocess
+
+        tb1_mocks.subprocess_run.return_value = real_subprocess.CompletedProcess(
+            args=["git", "diff"], returncode=0, stdout="", stderr=""
+        )
+        result = _run_tb1()
+        assert result["phase"] == "zero_diff"
+        assert result.get("session_id") == "SID-001"

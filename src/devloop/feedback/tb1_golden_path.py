@@ -236,6 +236,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     issue_description=issue_description,
                     issue_id=issue_id,
                     max_context_pct=max_context_pct,
+                    repo_path=repo_path,
                 )
                 overlay_text = overlay_result.get("overlay_text", "")
 
@@ -390,6 +391,69 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     restart_span.set_status(trace.StatusCode.OK)
 
             root_span.set_attribute("runtime_context_restarts", context_restarts)
+
+            # ----------------------------------------------------------
+            # Phase 7d: Zero-diff detection (#31 — "already fixed")
+            # ----------------------------------------------------------
+            with tracer.start_as_current_span(
+                "tb1.phase.zero_diff_check",
+                attributes={"tb1.phase": "zero_diff_check"},
+            ) as zd_span:
+                try:
+                    diff_stat = subprocess.run(
+                        ["git", "diff", "HEAD~1", "--stat"],
+                        cwd=worktree_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    has_changes = bool(diff_stat.stdout.strip())
+                    # Also check uncommitted changes
+                    if not has_changes:
+                        diff_wt = subprocess.run(
+                            ["git", "diff", "--stat"],
+                            cwd=worktree_path,
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                        has_changes = bool(diff_wt.stdout.strip())
+                    if not has_changes:
+                        diff_cached = subprocess.run(
+                            ["git", "diff", "--cached", "--stat"],
+                            cwd=worktree_path,
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                        has_changes = bool(diff_cached.stdout.strip())
+                except Exception:
+                    has_changes = True  # Assume changes on error — don't block
+
+                zd_span.set_attribute("tb1.has_changes", has_changes)
+
+                if not has_changes:
+                    elapsed = time.monotonic() - pipeline_start
+                    zd_span.set_status(
+                        trace.StatusCode.OK, "Zero-diff: agent reported done with no changes"
+                    )
+                    root_span.set_status(trace.StatusCode.OK, "Zero-diff — needs verification")
+                    logger.warning(
+                        "TB-1: Zero-diff for %s — agent produced no changes, routing to verification",
+                        issue_id,
+                    )
+                    return TB1Result(
+                        issue_id=issue_id,
+                        repo_path=repo_path,
+                        success=False,
+                        phase="zero_diff",
+                        worktree_path=worktree_path,
+                        persona=persona_name,
+                        session_id=session_id,
+                        session_path=session_path,
+                        error="Agent completed with zero changes — needs human verification",
+                        duration_seconds=round(elapsed, 2),
+                    ).model_dump()
 
             # ----------------------------------------------------------
             # Phase 8: Run quality gates

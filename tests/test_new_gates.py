@@ -162,13 +162,13 @@ class TestGate25DangerousOps:
         worktree = tmp_path / "repo"
         worktree.mkdir()
 
-        diff_text = """diff --git a/migrations/001.sql b/migrations/001.sql
+        diff_text = """diff --git a/src/db.sql b/src/db.sql
 +DROP TABLE users;
 """
         with patch("devloop.gates.server._run_cmd") as mock_run:
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout=diff_text, stderr=""),
-                MagicMock(returncode=0, stdout="migrations/001.sql\n", stderr=""),
+                MagicMock(returncode=0, stdout="src/db.sql\n", stderr=""),
             ]
             result = run_gate_25_dangerous_ops(str(worktree))
 
@@ -207,6 +207,241 @@ class TestGate25DangerousOps:
             result = run_gate_25_dangerous_ops(str(worktree))
 
         assert result["passed"] is False
+
+    # --- Migration file detection (section 1b) ---
+
+    def test_prisma_migration_with_drop_is_critical(self, tmp_path):
+        """Prisma migration containing DROP → critical finding, gate fails."""
+        from devloop.gates.server import run_gate_25_dangerous_ops
+
+        worktree = tmp_path / "repo"
+        worktree.mkdir()
+
+        diff_text = "+-- CreateTable\n+ALTER TABLE users ADD COLUMN age INT;"
+        file_diff = "+DROP TABLE old_users;"
+        with patch("devloop.gates.server._run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=diff_text, stderr=""),
+                MagicMock(
+                    returncode=0,
+                    stdout="prisma/migrations/20260328_drop/migration.sql\n",
+                    stderr="",
+                ),
+                MagicMock(returncode=0, stdout=file_diff, stderr=""),
+            ]
+            result = run_gate_25_dangerous_ops(str(worktree))
+
+        assert result["passed"] is False
+        destructive = [f for f in result["findings"] if f.get("rule") == "destructive_migration"]
+        assert len(destructive) >= 1
+        assert "DROP" in destructive[0]["message"]
+
+    def test_alembic_migration_with_truncate_is_critical(self, tmp_path):
+        """Alembic migration containing TRUNCATE → critical finding."""
+        from devloop.gates.server import run_gate_25_dangerous_ops
+
+        worktree = tmp_path / "repo"
+        worktree.mkdir()
+
+        diff_text = "some changes"
+        file_diff = "+TRUNCATE TABLE sessions;"
+        with patch("devloop.gates.server._run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=diff_text, stderr=""),
+                MagicMock(
+                    returncode=0,
+                    stdout="alembic/versions/abc123_cleanup.py\n",
+                    stderr="",
+                ),
+                MagicMock(returncode=0, stdout=file_diff, stderr=""),
+            ]
+            result = run_gate_25_dangerous_ops(str(worktree))
+
+        assert result["passed"] is False
+        destructive = [f for f in result["findings"] if f.get("rule") == "destructive_migration"]
+        assert len(destructive) >= 1
+        assert "TRUNCATE" in destructive[0]["message"]
+
+    def test_rails_migration_with_rename_is_critical(self, tmp_path):
+        """Rails migration containing RENAME → critical finding."""
+        from devloop.gates.server import run_gate_25_dangerous_ops
+
+        worktree = tmp_path / "repo"
+        worktree.mkdir()
+
+        diff_text = "some changes"
+        file_diff = "+RENAME TABLE users TO accounts;"
+        with patch("devloop.gates.server._run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=diff_text, stderr=""),
+                MagicMock(
+                    returncode=0,
+                    stdout="db/migrate/20260328_rename.rb\n",
+                    stderr="",
+                ),
+                MagicMock(returncode=0, stdout=file_diff, stderr=""),
+            ]
+            result = run_gate_25_dangerous_ops(str(worktree))
+
+        assert result["passed"] is False
+        destructive = [f for f in result["findings"] if f.get("rule") == "destructive_migration"]
+        assert len(destructive) >= 1
+
+    def test_additive_migration_is_warning_not_critical(self, tmp_path):
+        """Migration with only CREATE/ADD → warning (gate passes)."""
+        from devloop.gates.server import run_gate_25_dangerous_ops
+
+        worktree = tmp_path / "repo"
+        worktree.mkdir()
+
+        diff_text = "+CREATE TABLE new_feature (id SERIAL PRIMARY KEY);"
+        file_diff = "+CREATE TABLE new_feature (id SERIAL PRIMARY KEY);"
+        with patch("devloop.gates.server._run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=diff_text, stderr=""),
+                MagicMock(
+                    returncode=0,
+                    stdout="prisma/migrations/20260328_add/migration.sql\n",
+                    stderr="",
+                ),
+                MagicMock(returncode=0, stdout=file_diff, stderr=""),
+            ]
+            result = run_gate_25_dangerous_ops(str(worktree))
+
+        assert result["passed"] is True
+        migration_warnings = [
+            f for f in result["findings"] if f.get("rule") == "migration_file"
+        ]
+        assert len(migration_warnings) == 1
+        assert "additive" in migration_warnings[0]["message"].lower()
+
+    def test_alter_table_drop_column_in_migration_is_critical(self, tmp_path):
+        """ALTER TABLE ... DROP COLUMN in a migration → critical."""
+        from devloop.gates.server import run_gate_25_dangerous_ops
+
+        worktree = tmp_path / "repo"
+        worktree.mkdir()
+
+        diff_text = "migration changes"
+        file_diff = "+ALTER TABLE users DROP COLUMN legacy_field;"
+        with patch("devloop.gates.server._run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=diff_text, stderr=""),
+                MagicMock(
+                    returncode=0,
+                    stdout="prisma/migrations/20260328/migration.sql\n",
+                    stderr="",
+                ),
+                MagicMock(returncode=0, stdout=file_diff, stderr=""),
+            ]
+            result = run_gate_25_dangerous_ops(str(worktree))
+
+        assert result["passed"] is False
+        destructive = [f for f in result["findings"] if f.get("rule") == "destructive_migration"]
+        assert any("ALTER TABLE" in f["message"] or "DROP" in f["message"] for f in destructive)
+
+    def test_non_migration_file_not_flagged(self, tmp_path):
+        """Regular SQL file (not in migration path) → no migration finding."""
+        from devloop.gates.server import run_gate_25_dangerous_ops
+
+        worktree = tmp_path / "repo"
+        worktree.mkdir()
+
+        diff_text = "some diff"
+        with patch("devloop.gates.server._run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=diff_text, stderr=""),
+                MagicMock(returncode=0, stdout="src/queries/users.sql\n", stderr=""),
+            ]
+            result = run_gate_25_dangerous_ops(str(worktree))
+
+        assert result["passed"] is True
+        migration_findings = [
+            f for f in result["findings"]
+            if f.get("rule") in ("destructive_migration", "migration_file")
+        ]
+        assert len(migration_findings) == 0
+
+    def test_multiple_migration_files_each_checked(self, tmp_path):
+        """Multiple migration files → each gets individual assessment."""
+        from devloop.gates.server import run_gate_25_dangerous_ops
+
+        worktree = tmp_path / "repo"
+        worktree.mkdir()
+
+        diff_text = "changes"
+        with patch("devloop.gates.server._run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=diff_text, stderr=""),
+                MagicMock(
+                    returncode=0,
+                    stdout="prisma/migrations/001/migration.sql\nprisma/migrations/002/migration.sql\n",
+                    stderr="",
+                ),
+                # First migration: additive
+                MagicMock(returncode=0, stdout="+CREATE TABLE t1 (id INT);", stderr=""),
+                # Second migration: destructive
+                MagicMock(returncode=0, stdout="+DROP TABLE t2;", stderr=""),
+            ]
+            result = run_gate_25_dangerous_ops(str(worktree))
+
+        assert result["passed"] is False
+        additive = [f for f in result["findings"] if f.get("rule") == "migration_file"]
+        destructive = [f for f in result["findings"] if f.get("rule") == "destructive_migration"]
+        assert len(additive) == 1
+        assert len(destructive) >= 1
+
+    def test_migration_file_with_cached_diff_fallback(self, tmp_path):
+        """When HEAD~1 diff is empty, falls back to --cached diff."""
+        from devloop.gates.server import run_gate_25_dangerous_ops
+
+        worktree = tmp_path / "repo"
+        worktree.mkdir()
+
+        diff_text = "some staged content"
+        with patch("devloop.gates.server._run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=diff_text, stderr=""),
+                MagicMock(
+                    returncode=0,
+                    stdout="migrations/0001_initial.py\n",
+                    stderr="",
+                ),
+                # HEAD~1 diff empty
+                MagicMock(returncode=0, stdout="", stderr=""),
+                # --cached diff has content
+                MagicMock(returncode=0, stdout="+DROP TABLE old;", stderr=""),
+            ]
+            result = run_gate_25_dangerous_ops(str(worktree))
+
+        assert result["passed"] is False
+        destructive = [f for f in result["findings"] if f.get("rule") == "destructive_migration"]
+        assert len(destructive) >= 1
+
+    def test_delete_in_migration_is_critical(self, tmp_path):
+        """DELETE statement in migration → critical."""
+        from devloop.gates.server import run_gate_25_dangerous_ops
+
+        worktree = tmp_path / "repo"
+        worktree.mkdir()
+
+        diff_text = "changes"
+        file_diff = "+DELETE FROM users WHERE active = false;"
+        with patch("devloop.gates.server._run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=diff_text, stderr=""),
+                MagicMock(
+                    returncode=0,
+                    stdout="prisma/migrations/20260328_cleanup/migration.sql\n",
+                    stderr="",
+                ),
+                MagicMock(returncode=0, stdout=file_diff, stderr=""),
+            ]
+            result = run_gate_25_dangerous_ops(str(worktree))
+
+        assert result["passed"] is False
+        destructive = [f for f in result["findings"] if f.get("rule") == "destructive_migration"]
+        assert len(destructive) >= 1
 
 
 # ---------------------------------------------------------------------------
