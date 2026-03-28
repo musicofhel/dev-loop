@@ -182,17 +182,38 @@ def _run_cli_path(
     raw = proc.stdout.strip()
     parsed = json.loads(raw)
 
-    # Handle both direct {"findings": [...]} and {"result": "..."} wrapping
+    # Handle multiple output formats from claude --print --output-format json:
+    # 1. Direct {"findings": [...]}
+    # 2. {"result": "..."} wrapping
+    # 3. Stream-json array of events (find StructuredOutput tool_use)
+    findings: list[dict] = []
     if isinstance(parsed, dict):
         if "result" in parsed:
             inner = parsed["result"]
             if isinstance(inner, str):
                 inner = json.loads(inner)
-            findings = inner.get("findings", [])
+            if isinstance(inner, dict):
+                findings = inner.get("findings", [])
         else:
             findings = parsed.get("findings", [])
-    else:
-        findings = parsed if isinstance(parsed, list) else []
+    elif isinstance(parsed, list):
+        # Stream-json array: scan for StructuredOutput tool_use or result event
+        for event in parsed:
+            if not isinstance(event, dict):
+                continue
+            # Check assistant messages for StructuredOutput tool_use
+            msg = event.get("message", {})
+            if not isinstance(msg, dict):
+                continue
+            for content in (msg.get("content") or []):
+                if (isinstance(content, dict)
+                        and content.get("type") == "tool_use"
+                        and content.get("name") == "StructuredOutput"
+                        and isinstance(content.get("input"), dict)):
+                    findings = content["input"].get("findings", [])
+                    break
+            if findings:
+                break
 
     return findings, latency
 
@@ -204,8 +225,8 @@ def _compare_findings(
     if not dspy_findings or not cli_findings:
         return 0.0, 0.0
 
-    dspy_msgs = [f.get("message", "") for f in dspy_findings]
-    cli_msgs = [f.get("message", "") for f in cli_findings]
+    dspy_msgs = [str(f.get("message", "")) for f in dspy_findings]
+    cli_msgs = [str(f.get("message", "")) for f in cli_findings]
 
     # Match DSPy findings to CLI findings by best message overlap
     matched_cli: set[int] = set()
