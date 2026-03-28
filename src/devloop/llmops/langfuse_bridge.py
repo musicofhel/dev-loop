@@ -48,6 +48,18 @@ def init_langfuse_bridge() -> bool:
     if not public_key or not secret_key:
         return False
 
+    # Health check — don't set OTEL vars if Langfuse is unreachable
+    try:
+        import urllib.request
+
+        health_url = f"{url.rstrip('/')}/api/public/health"
+        req = urllib.request.Request(health_url, method="GET")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            if resp.status != 200:
+                return False
+    except Exception:
+        return False
+
     try:
         from openinference.instrumentation.dspy import DSPyInstrumentor
 

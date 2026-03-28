@@ -56,15 +56,30 @@ def _word_overlap(a: str, b: str) -> float:
     return len(a_words & b_words) / len(a_words | b_words)
 
 
-_MATCH_THRESHOLD = 0.25
+def _sequence_similarity(a: str, b: str) -> float:
+    """SequenceMatcher ratio on normalized strings (catches paraphrases)."""
+    from difflib import SequenceMatcher
+
+    na, nb = _normalize_msg(a), _normalize_msg(b)
+    if not na or not nb:
+        return 0.0
+    return SequenceMatcher(None, na, nb).ratio()
+
+
+def _combined_similarity(a: str, b: str) -> float:
+    """Best of Jaccard word overlap and SequenceMatcher (catches more match types)."""
+    return max(_word_overlap(a, b), _sequence_similarity(a, b))
+
+
+_MATCH_THRESHOLD = 0.20
 
 
 def code_review_metric(gold, pred, trace=None) -> dspy.Prediction:
     """GEPA-compatible metric for code review quality.
 
     Compares predicted findings against gold-standard findings using F1
-    with word-overlap matching (Jaccard >= 0.25). Returns score (0-1)
-    and textual feedback explaining failures.
+    with combined matching (max of Jaccard word-overlap and SequenceMatcher,
+    threshold >= 0.20). Returns score (0-1) and textual feedback.
     """
     feedback_parts: list[str] = []
     score = 0.0
@@ -104,7 +119,7 @@ def code_review_metric(gold, pred, trace=None) -> dspy.Prediction:
         )
         return dspy.Prediction(score=0.0, feedback=" | ".join(feedback_parts))
 
-    # Match findings by word overlap (Jaccard similarity)
+    # Match findings by combined similarity (Jaccard + SequenceMatcher)
     gold_msgs = [f.get("message", "") for f in gold_findings]
     pred_msgs = [f.get("message", "") for f in pred_findings]
     gold_sevs = [f.get("severity", "") for f in gold_findings]
@@ -121,7 +136,7 @@ def code_review_metric(gold, pred, trace=None) -> dspy.Prediction:
         for gi, gm in enumerate(gold_msgs):
             if gi in matched_gold:
                 continue
-            sim = _word_overlap(pm, gm)
+            sim = _combined_similarity(pm, gm)
             if sim > best_score:
                 best_score = sim
                 best_gi = gi

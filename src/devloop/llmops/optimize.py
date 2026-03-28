@@ -55,6 +55,33 @@ def _load_training_data(program_name: str, training_dir: Path, max_examples: int
     return examples
 
 
+def _balance_code_review(examples: list) -> list:
+    """Oversample clean-diff examples to reduce class imbalance.
+
+    Code review training data typically has ~80% with-findings and ~20% clean.
+    Oversamples clean diffs 3x so they represent ~40% of the dataset, reducing
+    the chance the optimizer learns to always produce findings.
+    """
+    with_findings = []
+    clean = []
+    for ex in examples:
+        try:
+            findings = json.loads(ex.findings_json)
+            if isinstance(findings, list) and len(findings) == 0:
+                clean.append(ex)
+            else:
+                with_findings.append(ex)
+        except (json.JSONDecodeError, AttributeError):
+            with_findings.append(ex)
+
+    if not clean or len(clean) / len(examples) > 0.35:
+        return examples  # already balanced enough
+
+    # Oversample clean diffs 3x
+    balanced = with_findings + clean * 3
+    return balanced
+
+
 def _get_metric(program_name: str):
     """Load the metric function for a program."""
     if program_name == "code_review":
@@ -120,6 +147,10 @@ def run_optimization(
             error=f"Need at least 5 training examples, found {len(examples)}. "
             f"Run 'just llmops-export' first.",
         )
+
+    # Balance class distribution for code_review before splitting
+    if program_name == "code_review":
+        examples = _balance_code_review(examples)
 
     # Split train/val (80/20)
     split = int(len(examples) * 0.8)

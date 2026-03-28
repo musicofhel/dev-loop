@@ -22,7 +22,6 @@ import subprocess
 from pathlib import Path
 
 import yaml
-
 from opentelemetry import trace
 
 logger = logging.getLogger(__name__)
@@ -204,6 +203,10 @@ _TB6_RE_EXPORTS = {
     "run_tb6",
 }
 
+_TB7_RE_EXPORTS = {
+    "run_tb7",
+}
+
 
 def __getattr__(name: str):  # noqa: E302
     if name in _TB1_RE_EXPORTS:
@@ -230,4 +233,8 @@ def __getattr__(name: str):  # noqa: E302
         import devloop.feedback.tb6_replay as _tb6  # noqa: F811
 
         return getattr(_tb6, name)
+    if name in _TB7_RE_EXPORTS:
+        import devloop.feedback.tb7_llmops as _tb7  # noqa: F811
+
+        return getattr(_tb7, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

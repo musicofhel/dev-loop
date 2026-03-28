@@ -413,6 +413,65 @@ class TestGate4FeatureFlag:
 # ---------------------------------------------------------------------------
 
 
+class TestTB7Helpers:
+    """Tests for TB-7 helper functions."""
+
+    def test_word_overlap_identical(self):
+        """Identical strings have overlap 1.0."""
+        from devloop.feedback.tb7_llmops import _word_overlap
+
+        assert _word_overlap("SQL injection on line 42", "SQL injection on line 42") == 1.0
+
+    def test_word_overlap_partial(self):
+        """Partially overlapping strings have intermediate score."""
+        from devloop.feedback.tb7_llmops import _word_overlap
+
+        score = _word_overlap("SQL injection vulnerability", "SQL injection on line 42")
+        assert 0.2 < score < 0.8
+
+    def test_word_overlap_disjoint(self):
+        """Completely different strings have zero overlap."""
+        from devloop.feedback.tb7_llmops import _word_overlap
+
+        assert _word_overlap("foo bar baz", "alpha beta gamma") == 0.0
+
+    def test_compare_findings_empty(self):
+        """Empty finding lists return zero scores."""
+        from devloop.feedback.tb7_llmops import _compare_findings
+
+        overlap, agreement = _compare_findings([], [])
+        assert overlap == 0.0
+        assert agreement == 0.0
+
+    def test_compare_findings_matching(self):
+        """Identical findings return high scores."""
+        from devloop.feedback.tb7_llmops import _compare_findings
+
+        findings = [{"severity": "critical", "message": "SQL injection on line 42"}]
+        overlap, agreement = _compare_findings(findings, findings)
+        assert overlap == 1.0
+        assert agreement == 1.0
+
+    def test_compare_findings_severity_mismatch(self):
+        """Same message but different severity gives overlap but no agreement."""
+        from devloop.feedback.tb7_llmops import _compare_findings
+
+        dspy = [{"severity": "critical", "message": "buffer overflow in parse_input"}]
+        cli = [{"severity": "warning", "message": "buffer overflow in parse_input"}]
+        overlap, agreement = _compare_findings(dspy, cli)
+        assert overlap == 1.0
+        assert agreement == 0.0
+
+    def test_tb7_result_model(self):
+        """TB7Result can be instantiated with defaults."""
+        from devloop.feedback.types import TB7Result
+
+        result = TB7Result(repo_path="/tmp/test", success=True, phase="compare")
+        assert result.success is True
+        assert result.dspy_finding_count == 0
+        assert result.latency_ratio == 0.0
+
+
 class TestDefaultSessionsDir:
     """Tests for _default_sessions_dir helper."""
 

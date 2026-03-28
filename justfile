@@ -134,6 +134,14 @@ tb6-replay SESSION_ID:
     @echo "Replaying session: {{SESSION_ID}}"
     uv run python -c "from devloop.feedback.pipeline import replay_session; r = replay_session('{{SESSION_ID}}'); print(r['timeline'])"
 
+# TB-7: LLMOps A/B comparison (DSPy optimized vs CLI baseline)
+# Usage: just tb7 <repo_path>
+# Example: just tb7 ~/prompt-bench
+tb7 REPO_PATH:
+    @echo "Running TB-7: LLMOps A/B Comparison"
+    @echo "Repo: {{REPO_PATH}}"
+    uv run python -c "from devloop.feedback.pipeline import run_tb7; import json; print(json.dumps(run_tb7('{{REPO_PATH}}'), indent=2))"
+
 # Stress test: run all 6 TBs N times (default 30)
 stress *ARGS:
     uv run python scripts/stress-test.py {{ARGS}}
@@ -448,6 +456,10 @@ llmops-export:
 llmops-optimize PROGRAM:
     @echo "Running GEPA optimization for {{PROGRAM}}..."
     uv run python -m devloop.llmops.optimize {{PROGRAM}}
+
+# Run metric diagnostic on validation examples
+llmops-diagnostic:
+    uv run python scripts/llmops/metric_diagnostic.py
 
 # Check optimization status for all programs
 llmops-status:

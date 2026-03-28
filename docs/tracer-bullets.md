@@ -1,6 +1,6 @@
 # Tracer Bullets
 
-Every feature is a vertical slice through all six layers. No horizontal building. Each TB has a single `just` command that runs it end-to-end.
+Every feature is a vertical slice through all seven layers. No horizontal building. Each TB has a single `just` command that runs it end-to-end.
 
 ---
 
@@ -229,6 +229,43 @@ just tb6-replay <session_id>       # replay a saved session
 
 ---
 
+## TB-7: LLMOps A/B Comparison (The Optimization Path)
+
+**What it proves:** Layer 7 (LLMOps) works end-to-end. The GEPA-optimized prompt produces measurably different output than the CLI baseline, and both paths are observable.
+
+### Vertical Slice
+
+| Layer | What happens | Minimal implementation |
+|-------|-------------|----------------------|
+| Intake | Training data exists (`code_review.jsonl` >= 5 examples) | Check JSONL line count |
+| Orchestration | Load optimized artifact from `artifacts/code_review_latest.json` | `load_program("code_review")` |
+| Runtime | DSPy module executes on a diff via OpenRouter/Opus 4.6 | `dspy.LM()` + `CodeReviewModule.forward()` |
+| Quality Gates | Run Gate 4 twice: DSPy path vs CLI baseline (`claude --print`) | Both paths produce `findings` JSON |
+| Observability | OTel spans emitted for both paths (tb7.phase.dspy_path, tb7.phase.cli_path) | Standard OTel tracing |
+| Feedback Loop | Comparison report: finding count, severity match, latency delta | `_compare_findings()` with Jaccard overlap |
+| LLMOps | Artifact metadata + metric score reported in result | `_latest_artifact()` metadata |
+
+### Entry Criteria
+- `OPENROUTER_API_KEY` set (or `ANTHROPIC_API_KEY` depending on provider)
+- `config/llmops.yaml` has `enabled: true`
+- At least 5 training examples in `code_review.jsonl`
+- `claude` CLI on PATH (for baseline comparison)
+
+### Exit Criteria
+- Both DSPy and CLI paths return valid JSON findings
+- Comparison metrics computed: finding count delta, message overlap, severity agreement, latency ratio
+- OTel spans visible for all 5 phases (validate, get_diff, dspy_path, cli_path, compare)
+- Result includes artifact version and metric score
+
+### Command
+```bash
+just tb7 ~/prompt-bench    # uses repo diff or test fixture
+```
+
+### Status: CODE COMPLETE
+
+---
+
 ## Implementation Order
 
 ```
@@ -238,6 +275,8 @@ TB-4 (cost control) ◄───────────────────
        │
        ▼
 TB-5 (cross-repo) ──► TB-6 (session replay)
+
+TB-7 (llmops A/B) ◄── Layer 7 enabled + training data exported
 ```
 
-TB-1 is the spine. Everything else builds on it. Do NOT start TB-2 until TB-1 passes end-to-end on prompt-bench.
+TB-1 is the spine. Everything else builds on it. Do NOT start TB-2 until TB-1 passes end-to-end on prompt-bench. TB-7 is independent — it only requires Layer 7 (LLMOps) to be enabled with training data.

@@ -358,3 +358,84 @@ class TB2Result(BaseModel):
         default_factory=list,
         description="Per-attempt summary with gate results and span IDs.",
     )
+
+
+class FindingComparison(BaseModel):
+    """Side-by-side comparison of a single finding from DSPy vs CLI paths."""
+
+    dspy_message: str = ""
+    cli_message: str = ""
+    severity_match: bool = False
+    message_similarity: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Jaccard similarity between finding messages.",
+    )
+
+
+class TB7Result(BaseModel):
+    """Result of a TB-7 pipeline run (LLMOps A/B Comparison)."""
+
+    repo_path: str
+    success: bool
+    phase: str = Field(description="Last phase completed (or failed at).")
+    error: str | None = None
+    duration_seconds: float = 0.0
+    # TB-7 specific fields
+    artifact_version: str | None = Field(
+        default=None,
+        description="Version string of the loaded optimization artifact.",
+    )
+    artifact_metric_score: float | None = Field(
+        default=None,
+        description="Metric score recorded in the artifact metadata.",
+    )
+    training_example_count: int = Field(
+        default=0,
+        description="Number of training examples in code_review.jsonl.",
+    )
+    dspy_finding_count: int = Field(
+        default=0,
+        description="Number of findings from the DSPy (optimized) path.",
+    )
+    cli_finding_count: int = Field(
+        default=0,
+        description="Number of findings from the CLI (baseline) path.",
+    )
+    dspy_findings: list[dict] = Field(
+        default_factory=list,
+        description="Raw findings from DSPy path.",
+    )
+    cli_findings: list[dict] = Field(
+        default_factory=list,
+        description="Raw findings from CLI path.",
+    )
+    dspy_latency_seconds: float = Field(
+        default=0.0,
+        description="Wall-clock time for the DSPy path.",
+    )
+    cli_latency_seconds: float = Field(
+        default=0.0,
+        description="Wall-clock time for the CLI path.",
+    )
+    latency_ratio: float = Field(
+        default=0.0,
+        description="DSPy latency / CLI latency (< 1.0 means DSPy is faster).",
+    )
+    finding_count_delta: int = Field(
+        default=0,
+        description="DSPy count - CLI count (positive = DSPy found more).",
+    )
+    message_overlap_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Average Jaccard similarity of matched finding messages.",
+    )
+    severity_agreement_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of matched findings where severity agrees.",
+    )
