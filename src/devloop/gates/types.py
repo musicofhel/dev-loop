@@ -16,6 +16,25 @@ class Finding(BaseModel):
     cwe: str | None = None  # e.g. "CWE-89" for SQL injection
 
 
+class TestOutcome(BaseModel):
+    """A single test case result from a test run."""
+
+    name: str
+    passed: bool
+    error_message: str | None = None
+
+
+class DifferentialResult(BaseModel):
+    """Result of differential test comparison."""
+
+    baseline_commit: str
+    baseline_failures: list[str]
+    head_failures: list[str]
+    new_failures: list[str]
+    preexisting_failures: list[str]
+    baseline_parse_error: bool = False
+
+
 class GateResult(BaseModel):
     """Result of running a single quality gate."""
 
@@ -25,6 +44,7 @@ class GateResult(BaseModel):
     duration_seconds: float = 0.0
     skipped: bool = False
     error: str | None = None
+    differential: DifferentialResult | None = None
 
 
 class GateSuiteResult(BaseModel):
