@@ -16,13 +16,21 @@ from pathlib import Path
 
 
 def _is_retry_prompt(content: str) -> bool:
-    """Detect if content is a retry prompt from build_retry_prompt()."""
+    """Detect if content is a retry prompt from build_retry_prompt().
+
+    Matches the actual output format of feedback/server.py:build_retry_prompt():
+    - Starts with ``## Issue:`` header
+    - Contains ``### Failure`` sections (capital F, from line 169 of server.py)
+    - Ends with ``fix the issues listed above`` instruction
+    - Excludes Gate 4 code review prompts (contain "senior code reviewer")
+    """
     lower = content.lower()
     # Must have the footer instruction (unique to retry prompts)
     if "fix the issues listed above" not in lower:
         return False
-    # Must have structured failure sections
-    if "### failure" not in lower:
+    # Must have structured failure sections — match the actual format:
+    # "### Failure {i}: {gate_name} quality gate" (case-insensitive)
+    if "### failure" not in lower and "## issue:" not in lower:
         return False
     # Exclude Gate 4 review prompts
     if "senior code reviewer" in lower:
@@ -64,12 +72,19 @@ def _extract_retry_data(events: list[dict]) -> list[dict]:
 
         # Detect gate failure reports (exclude Gate 4 review prompts)
         lower = content.lower()
-        if "gate" in lower and ("fail" in lower or "did not pass" in lower):
-            if "senior code reviewer" not in lower:
-                gate_failures.append({
-                    "content": content[:3000],
-                    "index": i,
-                })
+        is_gate_failure = (
+            # Original heuristic: explicit "gate" + "fail"/"did not pass"
+            ("gate" in lower and ("fail" in lower or "did not pass" in lower))
+            # Also match retry prompt format: "### Failure N: X quality gate"
+            or ("### failure" in lower and "quality gate" in lower)
+            # Also match structured failure sections from build_retry_prompt()
+            or ("## issue:" in lower and "### failure" in lower)
+        )
+        if is_gate_failure and "senior code reviewer" not in lower:
+            gate_failures.append({
+                "content": content[:3000],
+                "index": i,
+            })
 
         # Detect retry prompts
         if _is_retry_prompt(content) and gate_failures:

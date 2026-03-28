@@ -281,7 +281,7 @@ def run_tb4(
                 "tb4.phase.persona",
                 attributes={"tb4.phase": "persona"},
             ) as persona_span:
-                persona_result = select_persona(issue_labels)
+                persona_result = select_persona(issue_labels, issue_description=issue_description)
                 persona_name = persona_result.get("name", "feature")
                 max_retries = persona_result.get("retry_max", 2)
                 max_turns_total = turns_override or persona_result.get(

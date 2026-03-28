@@ -12,6 +12,7 @@ from __future__ import annotations
 import fcntl
 import json
 import logging
+import os
 import shutil
 import subprocess
 from datetime import UTC, datetime
@@ -279,7 +280,7 @@ def setup_worktree(issue_id: str, repo_path: str) -> dict:
     ),
     tags={"orchestration", "config"},
 )
-def select_persona(labels: list[str]) -> dict:
+def select_persona(labels: list[str], issue_description: str = "") -> dict:
     """Match labels to a persona from agents.yaml."""
     with tracer.start_as_current_span(
         "orchestration.select_persona",
@@ -295,7 +296,84 @@ def select_persona(labels: list[str]) -> dict:
             span.set_status(trace.StatusCode.ERROR, error_msg)
             return {"error": error_msg, "labels": labels}
 
-        match = _match_persona(labels, config)
+        # --- LLMOps feature flag: DSPy path vs label-matching path ---
+        dspy_match = None
+        try:
+            from devloop.llmops.server import _load_llmops_config
+
+            llmops_cfg = _load_llmops_config()
+        except ImportError:
+            llmops_cfg = None
+
+        if llmops_cfg and llmops_cfg.enabled and issue_description:
+            span.set_attribute("persona.llmops_path", True)
+            try:
+                import dspy
+
+                from devloop.llmops.programs import load_program
+                from devloop.llmops.programs.persona_select import VALID_PERSONAS
+                from devloop.llmops.types import OptimizationConfig
+
+                # Initialize Langfuse bridge for inference tracing
+                try:
+                    from devloop.llmops.langfuse_bridge import init_langfuse_bridge
+
+                    init_langfuse_bridge()
+                except ImportError:
+                    pass
+
+                api_key = os.environ.get(llmops_cfg.api_key_env)
+                if not api_key:
+                    raise RuntimeError(
+                        f"LLMOps enabled but {llmops_cfg.api_key_env} not set"
+                    )
+
+                pcfg = llmops_cfg.programs.get("persona_select", OptimizationConfig())
+                if llmops_cfg.provider == "openrouter":
+                    model_str = f"openrouter/anthropic/{pcfg.model}"
+                else:
+                    model_str = f"anthropic/{pcfg.model}"
+                dspy.configure(lm=dspy.LM(model_str, api_key=api_key, max_tokens=1024))
+                module = load_program("persona_select")
+
+                result = module(
+                    issue_labels=",".join(labels),
+                    issue_description=issue_description,
+                    repo_type="python",  # Default; could be inferred from project config
+                )
+
+                predicted_persona = (result.persona_id or "").strip().lower()
+                if predicted_persona not in VALID_PERSONAS:
+                    raise ValueError(
+                        f"DSPy predicted invalid persona '{predicted_persona}'"
+                    )
+
+                # Look up persona config from agents.yaml
+                personas = config.get("personas", {})
+                if predicted_persona in personas:
+                    persona_data = dict(personas[predicted_persona])
+                    # Append custom guidelines from DSPy to the overlay
+                    custom = (result.custom_guidelines or "").strip()
+                    if custom:
+                        existing_overlay = persona_data.get("claude_md_overlay", "")
+                        persona_data["claude_md_overlay"] = (
+                            f"{existing_overlay}\n{custom}" if existing_overlay else custom
+                        )
+                    dspy_match = (predicted_persona, persona_data)
+                    span.set_attribute("persona.dspy_selected", predicted_persona)
+                else:
+                    raise ValueError(
+                        f"DSPy persona '{predicted_persona}' not in agents.yaml"
+                    )
+
+            except Exception as dspy_exc:
+                span.set_attribute("persona.llmops_fallback", True)
+                span.set_attribute("persona.llmops_error", str(dspy_exc)[:200])
+                logger.warning("DSPy persona_select failed, falling back to label matching: %s", dspy_exc)
+        else:
+            span.set_attribute("persona.llmops_path", False)
+
+        match = dspy_match if dspy_match is not None else _match_persona(labels, config)
 
         if match is None:
             # Default to feature persona if no match

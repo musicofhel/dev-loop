@@ -290,7 +290,7 @@ def run_tb2(
                 "tb2.phase.persona",
                 attributes={"tb2.phase": "persona"},
             ) as persona_span:
-                persona_result = select_persona(issue_labels)
+                persona_result = select_persona(issue_labels, issue_description=issue_description)
                 persona_name = persona_result.get("name", "feature")
                 # TB-2 uses its own max_retries, not the persona's
                 persona_span.set_attribute("tb2.persona", persona_name)

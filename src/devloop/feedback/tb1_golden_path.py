@@ -250,7 +250,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 "tb1.phase.persona",
                 attributes={"tb1.phase": "persona"},
             ) as persona_span:
-                persona_result = select_persona(issue_labels)
+                persona_result = select_persona(issue_labels, issue_description=issue_description)
                 persona_name = persona_result.get("name", "feature")
                 max_retries = persona_result.get("retry_max", 2)
                 max_context_pct = persona_result.get("max_context_pct", 75)

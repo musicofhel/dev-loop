@@ -71,26 +71,60 @@ def _extract_persona_data(events: list[dict]) -> dict | None:
 
         lower = content.lower()
 
-        # Detect persona from CLAUDE.md overlay or pipeline output
+        valid = {
+            "bug-fix", "feature", "refactor", "security-fix",
+            "docs", "chore", "performance", "infrastructure", "test",
+        }
+
+        # Detect persona from multiple sources:
+        # 1. Explicit "persona: X" or "persona_id: X" (pipeline/config output)
         persona_match = re.search(
-            r"persona[:\s]+['\"]?(\w[\w-]*)['\"]?", lower
+            r"persona(?:_id)?[:\s]+['\"]?(\w[\w-]*)['\"]?", lower
         )
         if persona_match:
             candidate = persona_match.group(1)
-            valid = {
-                "bug-fix", "feature", "refactor", "security-fix",
-                "docs", "chore", "performance", "infrastructure", "test",
-            }
             if candidate in valid:
                 persona_id = candidate
 
-        # Detect labels
+        # 2. CLAUDE.md overlay content (contains persona-specific instructions)
+        if not persona_id:
+            for name in valid:
+                # Match overlay markers like "## bug-fix persona" or
+                # agent config references like "persona: bug-fix"
+                if f"## {name}" in lower or f"persona: {name}" in lower:
+                    persona_id = name
+                    break
+
+        # 3. Label-based inference (mirrors _match_persona logic from
+        # orchestration/server.py) — fall back to deriving from labels
+        _label_to_persona = {
+            "bug": "bug-fix", "feature": "feature", "refactor": "refactor",
+            "security": "security-fix", "docs": "docs", "chore": "chore",
+            "performance": "performance", "perf": "performance",
+            "infrastructure": "infrastructure", "ci": "infrastructure",
+            "ci-cd": "infrastructure", "devops": "infrastructure",
+            "test": "test", "testing": "test",
+        }
+
+        # Detect labels from multiple formats
         label_match = re.search(r"labels?[:\s]+\[([^\]]+)\]", lower)
         if label_match:
             issue_labels = [
                 label.strip().strip("'\"")
                 for label in label_match.group(1).split(",")
             ]
+        # Also detect "label: X" or "#X" tag patterns
+        if not issue_labels:
+            tag_matches = re.findall(r"#(bug|feature|refactor|security|docs|chore|performance|perf|infrastructure|test|testing)\b", lower)
+            if tag_matches:
+                issue_labels = tag_matches
+
+        # Infer persona from labels if not found directly
+        if not persona_id and issue_labels:
+            for label in issue_labels:
+                if label in _label_to_persona:
+                    persona_id = _label_to_persona[label]
+                    break
 
         # Capture first substantial human message as task description
         if not issue_description and evt.get("userType") == "external" and len(content) > 30:

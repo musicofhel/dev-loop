@@ -1633,6 +1633,14 @@ def run_gate_4_review(
                 from devloop.llmops.programs import load_program
                 from devloop.llmops.types import OptimizationConfig
 
+                # Initialize Langfuse bridge for inference tracing
+                try:
+                    from devloop.llmops.langfuse_bridge import init_langfuse_bridge
+
+                    init_langfuse_bridge()
+                except ImportError:
+                    pass
+
                 api_key = os.environ.get(llmops_cfg.api_key_env)
                 if not api_key:
                     raise RuntimeError(

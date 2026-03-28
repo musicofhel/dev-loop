@@ -385,7 +385,7 @@ def run_tb3(
                 "tb3.phase.persona",
                 attributes={"tb3.phase": "persona"},
             ) as persona_span:
-                persona_result = select_persona(issue_labels)
+                persona_result = select_persona(issue_labels, issue_description=issue_description)
                 persona_name = persona_result.get("name", "security-fix")
                 persona_span.set_attribute("tb3.persona", persona_name)
                 persona_span.set_attribute("tb3.max_retries", max_retries)

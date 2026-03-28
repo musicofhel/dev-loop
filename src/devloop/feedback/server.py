@@ -12,7 +12,9 @@ Run standalone:  uv run python -m devloop.feedback.server
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import subprocess
 import time
 
@@ -140,7 +142,86 @@ def build_retry_prompt(
         all_failed = _collect_all_failures(gate_failures)
         span.set_attribute("feedback.unique_failures", len(all_failed))
 
-        # Build the prompt from the template in the layer doc
+        # --- LLMOps feature flag: DSPy path vs template path ---
+        _used_llmops = False
+        try:
+            from devloop.llmops.server import _load_llmops_config
+
+            llmops_cfg = _load_llmops_config()
+        except ImportError:
+            llmops_cfg = None
+
+        if llmops_cfg and llmops_cfg.enabled:
+            span.set_attribute("feedback.llmops_path", True)
+            try:
+                import dspy
+
+                from devloop.llmops.programs import load_program
+                from devloop.llmops.types import OptimizationConfig
+
+                # Initialize Langfuse bridge for inference tracing
+                try:
+                    from devloop.llmops.langfuse_bridge import init_langfuse_bridge
+
+                    init_langfuse_bridge()
+                except ImportError:
+                    pass
+
+                api_key = os.environ.get(llmops_cfg.api_key_env)
+                if not api_key:
+                    raise RuntimeError(
+                        f"LLMOps enabled but {llmops_cfg.api_key_env} not set"
+                    )
+
+                pcfg = llmops_cfg.programs.get("retry_prompt", OptimizationConfig())
+                if llmops_cfg.provider == "openrouter":
+                    model_str = f"openrouter/anthropic/{pcfg.model}"
+                else:
+                    model_str = f"anthropic/{pcfg.model}"
+                dspy.configure(lm=dspy.LM(model_str, api_key=api_key, max_tokens=2048))
+                module = load_program("retry_prompt")
+
+                # Build inputs matching RetryPrompt DSPy signature
+                failure_log = "\n---\n".join(
+                    _format_findings(f) or f.get("error", "unknown failure")
+                    for f in all_failed[-4:]  # last 4 failures
+                )
+                original_task = f"{issue_title}\n{issue_description}"
+                gate_results = json.dumps(
+                    [{"gate_name": f.get("gate_name", "unknown"),
+                      "error": f.get("error", "")[:500]}
+                     for f in all_failed[-4:]]
+                )
+
+                result = module(
+                    failure_log=failure_log,
+                    original_task=original_task,
+                    gate_results=gate_results,
+                )
+
+                prompt_text = result.retry_instructions
+                if not prompt_text or len(prompt_text) < 20:
+                    raise ValueError("DSPy returned empty/too-short retry instructions")
+
+                span.set_attribute("feedback.prompt_length", len(prompt_text))
+                span.set_status(trace.StatusCode.OK)
+
+                result_obj = RetryPrompt(
+                    prompt_text=prompt_text,
+                    failure_count=len(all_failed),
+                )
+                _used_llmops = True
+                return result_obj.model_dump()
+
+            except Exception as dspy_exc:
+                span.set_attribute("feedback.llmops_fallback", True)
+                span.set_attribute("feedback.llmops_error", str(dspy_exc)[:200])
+                logger.warning("DSPy retry_prompt path failed, falling back to template: %s", dspy_exc)
+
+        if not _used_llmops:
+            span.set_attribute("feedback.llmops_path", False)
+
+        # --- Template path: existing manual prompt construction ---
         sections: list[str] = []
 
         sections.append(f"## Issue: {issue_title}")

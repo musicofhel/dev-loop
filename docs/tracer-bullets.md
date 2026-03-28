@@ -262,7 +262,14 @@ just tb6-replay <session_id>       # replay a saved session
 just tb7 ~/prompt-bench    # uses repo diff or test fixture
 ```
 
-### Status: CODE COMPLETE
+### Status: PASSING (2026-03-28)
+
+Validated with `run_tb7("/home/musicofhel/prompt-bench")`:
+- DSPy path: 4 findings (0.06s, cached artifact v20260328-141039, score 0.771)
+- CLI path: 5 findings (24.27s)
+- Overlap: 37.2%, severity agreement: 66.7%
+- All 3 programs optimized: code_review (0.771), retry_prompt (0.733), persona_select (0.933)
+- Langfuse bridge wired into all inference paths
 
 ---
 

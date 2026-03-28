@@ -394,7 +394,7 @@ def run_tb6(
             with tracer_tb6.start_as_current_span(
                 "tb6.phase.persona", attributes={"tb6.phase": "persona"},
             ) as persona_span:
-                persona_result = select_persona(issue_labels)
+                persona_result = select_persona(issue_labels, issue_description=issue_description)
                 persona_name = persona_result.get("name", "feature")
                 persona_span.set_attribute("tb6.persona", persona_name)
 
