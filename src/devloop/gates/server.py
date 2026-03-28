@@ -6,6 +6,7 @@ a gauntlet of automated checks before it becomes a PR. Gates run sequentially
 
 Gates:
   Gate 0   (Sanity)         — compile + test
+  Gate 0.1 (Differential)   — baseline vs HEAD test comparison (opt-in, on Gate 0 fail)
   Gate 0.5 (Relevance)      — keyword overlap between issue and diff
   Gate 2   (Secrets)        — gitleaks scan
   Gate 2.5 (Dangerous Ops)  — DB migrations, CI/CD, auth, lock files
@@ -31,7 +32,7 @@ import yaml
 from fastmcp import FastMCP
 from opentelemetry import trace
 
-from devloop.gates.types import Finding, GateResult, GateSuiteResult
+from devloop.gates.types import DifferentialResult, Finding, GateResult, GateSuiteResult
 
 # ---------------------------------------------------------------------------
 # OTel tracer for gates layer
@@ -367,6 +368,319 @@ def run_gate_0_sanity(worktree_path: str) -> dict:
             findings=findings,
             duration_seconds=round(elapsed, 3),
         ).model_dump()
+
+
+# ---------------------------------------------------------------------------
+# Gate 0.1: Differential Test Check — parsers, helpers, and gate
+# ---------------------------------------------------------------------------
+
+
+def _parse_pytest_junit(xml_content: str) -> list[dict]:
+    """Parse JUnit XML from pytest --junitxml. Returns list of TestOutcome dicts."""
+    import xml.etree.ElementTree as ET
+
+    outcomes: list[dict] = []
+    try:
+        root = ET.fromstring(xml_content)
+        for tc in root.iter("testcase"):
+            name = f"{tc.get('classname', '')}.{tc.get('name', '')}"
+            failure_el = tc.find("failure")
+            error_el = tc.find("error")
+            failed = failure_el is not None or error_el is not None
+            msg = None
+            if failed:
+                el = failure_el if failure_el is not None else error_el
+                msg = el.get("message", "") if el is not None else None
+            outcomes.append({"name": name, "passed": not failed, "error_message": msg})
+    except ET.ParseError:
+        pass
+    return outcomes
+
+
+def _parse_node_json(json_str: str) -> list[dict]:
+    """Parse Jest/Vitest --json output. Returns list of TestOutcome dicts."""
+    outcomes: list[dict] = []
+    try:
+        data = json.loads(json_str)
+        for suite in data.get("testResults", []):
+            for test in suite.get("testResults", suite.get("assertionResults", [])):
+                name = (
+                    test.get("fullName")
+                    or test.get("ancestorTitles", [""])[0] + " > " + test.get("title", "")
+                )
+                status = test.get("status", "")
+                outcomes.append({
+                    "name": name,
+                    "passed": status == "passed",
+                    "error_message": "\n".join(test.get("failureMessages", [])) or None,
+                })
+    except (json.JSONDecodeError, KeyError, TypeError):
+        pass
+    return outcomes
+
+
+def _parse_cargo_test(output: str) -> list[dict]:
+    """Parse cargo test output. Returns list of TestOutcome dicts."""
+    outcomes: list[dict] = []
+    pattern = re.compile(r"^test\s+(\S+)\s+\.\.\.\s+(ok|FAILED|ignored)$", re.MULTILINE)
+    for match in pattern.finditer(output):
+        name, status = match.group(1), match.group(2)
+        if status != "ignored":
+            outcomes.append({"name": name, "passed": status == "ok", "error_message": None})
+    return outcomes
+
+
+def _run_tests_with_parsing(worktree_path: str, project_type: str) -> tuple[int, list[dict]]:
+    """Run tests and parse results. Returns (return_code, list_of_TestOutcome_dicts)."""
+    import tempfile
+
+    if project_type == "python":
+        with tempfile.NamedTemporaryFile(suffix=".xml", delete=False) as f:
+            junit_path = f.name
+        try:
+            result = _run_cmd(
+                ["uv", "run", "pytest", "--tb=short", "-q", f"--junitxml={junit_path}"],
+                cwd=worktree_path,
+                timeout=120,
+            )
+            try:
+                xml_content = Path(junit_path).read_text()
+                outcomes = _parse_pytest_junit(xml_content)
+            except FileNotFoundError:
+                outcomes = []
+        finally:
+            Path(junit_path).unlink(missing_ok=True)
+        return result.returncode, outcomes
+
+    elif project_type == "node":
+        result = _run_cmd(
+            ["npx", "jest", "--json", "--no-coverage"],
+            cwd=worktree_path,
+            timeout=120,
+        )
+        outcomes = _parse_node_json(result.stdout or "")
+        return result.returncode, outcomes
+
+    elif project_type == "rust":
+        result = _run_cmd(["cargo", "test"], cwd=worktree_path, timeout=120)
+        outcomes = _parse_cargo_test(result.stdout or "")
+        return result.returncode, outcomes
+
+    return 0, []
+
+
+def _is_differential_enabled(worktree_path: str) -> bool:
+    """Check if differential gate is enabled for the project in this worktree."""
+    worktree = Path(worktree_path)
+    metadata_path = worktree / ".dev-loop-metadata.json"
+    if not metadata_path.exists():
+        return False
+    try:
+        metadata = json.loads(metadata_path.read_text())
+        repo_name = Path(metadata.get("repo_path", "")).name
+        config_path = (
+            Path(__file__).resolve().parents[3] / "config" / "projects" / f"{repo_name}.yaml"
+        )
+        if config_path.exists():
+            with open(config_path) as f:
+                config = yaml.safe_load(f) or {}
+            return config.get("quality_gates", {}).get("differential", {}).get("enabled", False)
+    except Exception:
+        pass
+    return False
+
+
+@mcp.tool(
+    description=(
+        "Gate 0.1 — Differential test check. Compares test results between "
+        "merge-base (pre-agent) and HEAD (post-agent). Only NEW failures block."
+    ),
+    tags={"gates", "differential"},
+)
+def run_gate_01_differential(
+    worktree_path: str, gate_0_findings: list[dict] | None = None
+) -> dict:
+    """Run differential test analysis between baseline and HEAD."""
+    start = time.monotonic()
+    findings: list[Finding] = []
+    worktree = Path(worktree_path)
+
+    if not worktree.is_dir():
+        return GateResult(
+            gate_name="gate_01_differential",
+            passed=False,
+            findings=[Finding(severity="critical", message=f"Worktree not found: {worktree_path}")],
+            duration_seconds=round(time.monotonic() - start, 2),
+        ).model_dump()
+
+    # 1. Find merge-base
+    mb_result = _run_cmd(["git", "merge-base", "HEAD", "main"], cwd=worktree_path, timeout=30)
+    if mb_result.returncode != 0:
+        mb_result = _run_cmd(
+            ["git", "merge-base", "HEAD", "origin/main"], cwd=worktree_path, timeout=30
+        )
+    if mb_result.returncode != 0:
+        return GateResult(
+            gate_name="gate_01_differential",
+            passed=False,
+            findings=[
+                Finding(
+                    severity="critical",
+                    message="Cannot determine merge-base for differential analysis",
+                )
+            ],
+            duration_seconds=round(time.monotonic() - start, 2),
+        ).model_dump()
+
+    baseline_sha = mb_result.stdout.strip()
+
+    # 2. Check for agent commits
+    log_result = _run_cmd(
+        ["git", "log", f"{baseline_sha}..HEAD", "--oneline"], cwd=worktree_path, timeout=30
+    )
+    if not (log_result.stdout or "").strip():
+        return GateResult(
+            gate_name="gate_01_differential",
+            passed=True,
+            skipped=True,
+            findings=[
+                Finding(severity="info", message="No agent commits found — differential check skipped")
+            ],
+            duration_seconds=round(time.monotonic() - start, 2),
+        ).model_dump()
+
+    # 3. Detect project type
+    project_type = _detect_project_type(worktree)
+    if project_type == "unknown":
+        return GateResult(
+            gate_name="gate_01_differential",
+            passed=False,
+            findings=[
+                Finding(
+                    severity="warning",
+                    message="Unknown project type — cannot run differential tests",
+                )
+            ],
+            duration_seconds=round(time.monotonic() - start, 2),
+        ).model_dump()
+
+    # 4. Save current branch
+    branch_result = _run_cmd(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path, timeout=10
+    )
+    current_branch = (branch_result.stdout or "").strip() or "HEAD"
+
+    # 5. Checkout baseline and run tests
+    checkout_result = _run_cmd(
+        ["git", "checkout", baseline_sha, "--quiet"], cwd=worktree_path, timeout=30
+    )
+    if checkout_result.returncode != 0:
+        return GateResult(
+            gate_name="gate_01_differential",
+            passed=False,
+            findings=[
+                Finding(severity="critical", message=f"Cannot checkout baseline {baseline_sha}")
+            ],
+            duration_seconds=round(time.monotonic() - start, 2),
+        ).model_dump()
+
+    try:
+        # Install deps for baseline if needed
+        if project_type == "python":
+            _run_cmd(["uv", "sync", "--dev", "--reinstall"], cwd=worktree_path, timeout=120)
+        elif project_type == "node":
+            _run_cmd(["npm", "install", "--ignore-scripts"], cwd=worktree_path, timeout=120)
+
+        baseline_rc, baseline_outcomes = _run_tests_with_parsing(worktree_path, project_type)
+    finally:
+        # 6. Always restore to agent branch
+        _run_cmd(["git", "checkout", current_branch, "--quiet"], cwd=worktree_path, timeout=30)
+        if project_type == "python":
+            _run_cmd(["uv", "sync", "--dev", "--reinstall"], cwd=worktree_path, timeout=120)
+        elif project_type == "node":
+            _run_cmd(["npm", "install", "--ignore-scripts"], cwd=worktree_path, timeout=120)
+
+    # 7. Run HEAD tests
+    head_rc, head_outcomes = _run_tests_with_parsing(worktree_path, project_type)
+
+    # 8. Compute differential
+    baseline_fail_names = {t["name"] for t in baseline_outcomes if not t["passed"]}
+    head_fail_names = {t["name"] for t in head_outcomes if not t["passed"]}
+    new_failures = sorted(head_fail_names - baseline_fail_names)
+    preexisting = sorted(head_fail_names & baseline_fail_names)
+
+    # Handle unparsable output
+    parse_error = False
+    if head_rc != 0 and not head_outcomes:
+        parse_error = True
+        findings.append(
+            Finding(
+                severity="critical",
+                message="Test output unparsable — cannot determine differential. Deferring to Gate 0 result.",
+            )
+        )
+        return GateResult(
+            gate_name="gate_01_differential",
+            passed=False,
+            findings=findings,
+            differential=DifferentialResult(
+                baseline_commit=baseline_sha,
+                baseline_failures=sorted(baseline_fail_names),
+                head_failures=sorted(head_fail_names),
+                new_failures=new_failures,
+                preexisting_failures=preexisting,
+                baseline_parse_error=parse_error,
+            ),
+            duration_seconds=round(time.monotonic() - start, 2),
+        ).model_dump()
+
+    # Log pre-existing failures as warnings
+    for name in preexisting:
+        findings.append(
+            Finding(
+                severity="warning",
+                message=f"Pre-existing test failure (not agent-caused): {name}",
+                rule="preexisting_failure",
+            )
+        )
+
+    # Log new failures as critical
+    for name in new_failures:
+        findings.append(
+            Finding(
+                severity="critical",
+                message=f"New test failure introduced by agent: {name}",
+                rule="new_failure",
+            )
+        )
+
+    # Log fixed tests as info
+    fixed = sorted(baseline_fail_names - head_fail_names)
+    for name in fixed:
+        findings.append(
+            Finding(
+                severity="info",
+                message=f"Agent fixed pre-existing failure: {name}",
+                rule="fixed_test",
+            )
+        )
+
+    passed = len(new_failures) == 0
+
+    return GateResult(
+        gate_name="gate_01_differential",
+        passed=passed,
+        findings=findings,
+        differential=DifferentialResult(
+            baseline_commit=baseline_sha,
+            baseline_failures=sorted(baseline_fail_names),
+            head_failures=sorted(head_fail_names),
+            new_failures=new_failures,
+            preexisting_failures=preexisting,
+            baseline_parse_error=parse_error,
+        ),
+        duration_seconds=round(time.monotonic() - start, 2),
+    ).model_dump()
 
 
 # ---------------------------------------------------------------------------
@@ -1652,7 +1966,8 @@ def run_gate_5_cost(
 @mcp.tool(
     description=(
         "Run all quality gates in fail-fast order: "
-        "Gate 0 (sanity) → Gate 0.5 (relevance) → Gate 2 (secrets) → "
+        "Gate 0 (sanity) → [Gate 0.1 (differential, if Gate 0 fails)] → "
+        "Gate 0.5 (relevance) → Gate 2 (secrets) → "
         "Gate 2.5 (dangerous ops) → Gate 3 (security) → Gate 4 (review). "
         "Stops at first failure. Returns overall pass/fail with per-gate results. "
         "Gate 5 (cost) is NOT included — call it separately with usage data."
@@ -1698,8 +2013,22 @@ def run_all_gates(
         # --- Gate 0: Sanity ---
         g0 = GateResult(**run_gate_0_sanity(worktree_path))
         gate_results.append(g0)
-        if (bail := _fail_fast(g0)) is not None:
-            return bail
+        if not g0.passed and not g0.skipped:
+            if _is_differential_enabled(worktree_path):
+                g01 = GateResult(
+                    **run_gate_01_differential(
+                        worktree_path,
+                        gate_0_findings=[f.model_dump() for f in g0.findings],
+                    )
+                )
+                gate_results.append(g01)
+                if not g01.passed:
+                    if (bail := _fail_fast(g01)) is not None:
+                        return bail
+                # Gate 0.1 passed — all failures pre-existing, continue pipeline
+            else:
+                if (bail := _fail_fast(g0)) is not None:
+                    return bail
 
         # --- Gate 0.5: Relevance ---
         g05 = GateResult(**run_gate_05_relevance(worktree_path, issue_title, issue_description))
