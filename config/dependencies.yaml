@@ -1,6 +1,11 @@
 # Cross-repo dependency map for cascade detection (TB-5)
 # See docs/layers/06-feedback-loop.md Channel 4
 
+repo_paths:
+  prompt-bench: /home/musicofhel/prompt-bench
+  omniswipe-backend: /home/musicofhel/omniswipe-backend
+  omniswipe-mobile: /home/musicofhel/omniswipe-mobile
+
 dependencies:
   - source: prompt-bench
     target: omniswipe-backend

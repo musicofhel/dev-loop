@@ -11,6 +11,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import subprocess
 import time
 from pathlib import Path
 
@@ -18,11 +19,12 @@ from opentelemetry import trace
 
 from devloop.feedback.pipeline import (
     _clear_pipeline_timeout,
-    _load_allowed_tools,
     _latest_failure_gate,
+    _load_allowed_tools,
     _set_pipeline_timeout,
     _unclaim_issue,
 )
+from devloop.feedback.server import escalate_to_human, retry_agent
 from devloop.feedback.tb4_runaway import (
     HANDOFF_DIR,
     MAX_CONTEXT_RESTARTS,
@@ -30,7 +32,12 @@ from devloop.feedback.tb4_runaway import (
     _clear_handoff,
     _read_handoff,
 )
-from devloop.feedback.server import escalate_to_human, retry_agent
+from devloop.feedback.tb5_cascade import find_cascade_targets, run_tb5
+from devloop.feedback.tb6_replay import (
+    _generate_session_id,
+    _save_session,
+    _suggest_claude_md_fix,
+)
 from devloop.feedback.types import TB1Result
 from devloop.gates.server import run_all_gates
 from devloop.gates.types import GateSuiteResult
@@ -303,6 +310,25 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     ).model_dump()
 
             # ----------------------------------------------------------
+            # Phase 7c: Save session (TB-6 — fail-safe)
+            # ----------------------------------------------------------
+            session_id: str | None = None
+            session_path: str | None = None
+            try:
+                agent_stdout = agent_result.get("stdout", "")
+                if agent_stdout:
+                    session_id = _generate_session_id(issue_id)
+                    session_path = _save_session(session_id, agent_stdout, {
+                        "issue_id": issue_id,
+                        "repo_path": repo_path,
+                        "persona": persona_name,
+                        "worktree_path": worktree_path,
+                    })
+                    logger.info("TB-1: Session saved as %s", session_id)
+            except Exception:
+                logger.warning("TB-1: Session capture failed for %s", issue_id)
+
+            # ----------------------------------------------------------
             # Phase 7b: Context restart loop (if agent hit context limit)
             # ----------------------------------------------------------
             agent_context_limited = agent_result.get("context_limited", False)
@@ -431,6 +457,33 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                             pr_result.get("message", "unknown error"),
                         )
 
+                # ----------------------------------------------------------
+                # Phase 9b: Check cascade targets (TB-5 — fail-safe)
+                # ----------------------------------------------------------
+                cascade_results: list[dict] = []
+                try:
+                    targets = find_cascade_targets(repo_path, issue_id)
+                    for target in targets:
+                        try:
+                            logger.info(
+                                "TB-1 CASCADE: %s -> %s (%s)",
+                                issue_id,
+                                target["target_repo_name"],
+                                ", ".join(target["matched_watches"]),
+                            )
+                            cascade_results.append(run_tb5(
+                                source_issue_id=issue_id,
+                                source_repo_path=repo_path,
+                                target_repo_path=target["target_repo_path"],
+                            ))
+                        except Exception as cascade_exc:
+                            logger.warning(
+                                "TB-1 CASCADE %s -> %s failed: %s",
+                                issue_id, target["target_repo_name"], cascade_exc,
+                            )
+                except Exception:
+                    logger.warning("TB-1 CASCADE CHECK failed for %s", issue_id)
+
                 elapsed = time.monotonic() - pipeline_start
                 logger.info(
                     "TB-1 SUCCESS: Issue %s — all gates passed in %.1fs",
@@ -453,6 +506,9 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     max_retries=max_retries,
                     duration_seconds=round(elapsed, 2),
                     pr_url=pr_url,
+                    session_id=session_id,
+                    session_path=session_path,
+                    cascade_results=cascade_results,
                 ).model_dump()
 
             # ----------------------------------------------------------
@@ -528,6 +584,25 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                                     retry_pr_result.get("message", "unknown error"),
                                 )
 
+                        # Check cascade targets after retry-PR (TB-5 — fail-safe)
+                        retry_cascade_results: list[dict] = []
+                        try:
+                            retry_targets = find_cascade_targets(repo_path, issue_id)
+                            for target in retry_targets:
+                                try:
+                                    retry_cascade_results.append(run_tb5(
+                                        source_issue_id=issue_id,
+                                        source_repo_path=repo_path,
+                                        target_repo_path=target["target_repo_path"],
+                                    ))
+                                except Exception as cascade_exc:
+                                    logger.warning(
+                                        "TB-1 CASCADE %s -> %s failed: %s",
+                                        issue_id, target["target_repo_name"], cascade_exc,
+                                    )
+                        except Exception:
+                            logger.warning("TB-1 CASCADE CHECK failed for %s", issue_id)
+
                         elapsed = time.monotonic() - pipeline_start
                         logger.info(
                             "TB-1 SUCCESS after retry %d: Issue %s in %.1fs",
@@ -553,6 +628,9 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                             max_retries=max_retries,
                             duration_seconds=round(elapsed, 2),
                             pr_url=retry_pr_url,
+                            session_id=session_id,
+                            session_path=session_path,
+                            cascade_results=retry_cascade_results,
                         ).model_dump()
 
                     # Accumulate failures for next retry prompt (M6: include spawn failures)
@@ -600,6 +678,22 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     esc_result.get("success", False),
                 )
 
+                # ----------------------------------------------------------
+                # Phase 11b: Suggest CLAUDE.md fix (TB-6 — fail-safe)
+                # ----------------------------------------------------------
+                suggested_fix: str | None = None
+                try:
+                    suggested_fix = _suggest_claude_md_fix(all_gate_failures)
+                    if suggested_fix:
+                        subprocess.run(
+                            ["br", "comments", "add", issue_id, "--message",
+                             f"[dev-loop] Suggested CLAUDE.md fix:\n{suggested_fix}"],
+                            capture_output=True, text=True, check=False,
+                            timeout=30, cwd=repo_path,
+                        )
+                except Exception:
+                    pass  # fail-safe
+
             elapsed = time.monotonic() - pipeline_start
             root_span.set_attribute("tb1.outcome", "escalated")
             root_span.set_attribute("tb1.retries_used", retries_used)
@@ -620,6 +714,9 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 escalated=True,
                 error=f"All {retries_used} retries failed; issue escalated to human",
                 duration_seconds=round(elapsed, 2),
+                session_id=session_id,
+                session_path=session_path,
+                suggested_fix=suggested_fix,
             ).model_dump()
 
         except Exception as exc:

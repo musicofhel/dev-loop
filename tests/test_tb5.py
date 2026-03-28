@@ -466,3 +466,129 @@ class TestGetSourceIssueDetails:
         )
         with pytest.raises(json.JSONDecodeError):
             _get_source_issue_details("dl-abc")
+
+
+# ---------------------------------------------------------------------------
+# _resolve_repo_path tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveRepoPath:
+    """Tests for _resolve_repo_path() — repo name to absolute path lookup."""
+
+    def test_resolves_known_repo(self, tmp_path):
+        """Returns absolute path for a known repo name."""
+        dep_file = tmp_path / "dependencies.yaml"
+        dep_file.write_text(
+            "repo_paths:\n"
+            "  prompt-bench: /home/user/prompt-bench\n"
+            "dependencies: []\n"
+        )
+        from devloop.feedback.tb5_cascade import _resolve_repo_path
+
+        with patch("devloop.feedback.tb5_cascade._CONFIG_DIR", tmp_path):
+            assert _resolve_repo_path("prompt-bench") == "/home/user/prompt-bench"
+
+    def test_returns_none_for_unknown_repo(self, tmp_path):
+        """Returns None for a repo name not in repo_paths."""
+        dep_file = tmp_path / "dependencies.yaml"
+        dep_file.write_text(
+            "repo_paths:\n"
+            "  prompt-bench: /home/user/prompt-bench\n"
+            "dependencies: []\n"
+        )
+        from devloop.feedback.tb5_cascade import _resolve_repo_path
+
+        with patch("devloop.feedback.tb5_cascade._CONFIG_DIR", tmp_path):
+            assert _resolve_repo_path("nonexistent") is None
+
+    def test_returns_none_when_config_missing(self, tmp_path):
+        """Returns None when dependencies.yaml doesn't exist."""
+        from devloop.feedback.tb5_cascade import _resolve_repo_path
+
+        with patch("devloop.feedback.tb5_cascade._CONFIG_DIR", tmp_path):
+            assert _resolve_repo_path("anything") is None
+
+    def test_returns_none_when_no_repo_paths_key(self, tmp_path):
+        """Returns None when repo_paths key is absent."""
+        dep_file = tmp_path / "dependencies.yaml"
+        dep_file.write_text("dependencies: []\n")
+        from devloop.feedback.tb5_cascade import _resolve_repo_path
+
+        with patch("devloop.feedback.tb5_cascade._CONFIG_DIR", tmp_path):
+            assert _resolve_repo_path("anything") is None
+
+
+# ---------------------------------------------------------------------------
+# find_cascade_targets tests
+# ---------------------------------------------------------------------------
+
+
+class TestFindCascadeTargets:
+    """Tests for find_cascade_targets() — TB-1 integration helper."""
+
+    @patch("devloop.feedback.tb5_cascade._resolve_repo_path")
+    @patch("devloop.feedback.tb5_cascade._load_dependency_map")
+    @patch("devloop.feedback.tb5_cascade._get_changed_files")
+    def test_finds_matching_targets(self, mock_changed, mock_deps, mock_resolve):
+        """Returns targets when changed files match watch patterns."""
+        from devloop.feedback.tb5_cascade import find_cascade_targets
+
+        mock_changed.return_value = ["src/api/routes.py"]
+        mock_deps.return_value = [
+            {"source": "prompt-bench", "target": "omniswipe-backend",
+             "watches": ["src/api/**"], "type": "api-contract"},
+        ]
+        mock_resolve.return_value = "/home/user/omniswipe-backend"
+
+        targets = find_cascade_targets("/home/user/prompt-bench", "dl-test")
+        assert len(targets) == 1
+        assert targets[0]["target_repo_name"] == "omniswipe-backend"
+        assert targets[0]["target_repo_path"] == "/home/user/omniswipe-backend"
+        assert targets[0]["matched_watches"] == ["src/api/**"]
+
+    @patch("devloop.feedback.tb5_cascade._get_changed_files")
+    def test_no_changed_files_returns_empty(self, mock_changed):
+        """Returns empty list when no files changed."""
+        from devloop.feedback.tb5_cascade import find_cascade_targets
+
+        mock_changed.return_value = []
+        assert find_cascade_targets("/home/user/prompt-bench", "dl-test") == []
+
+    @patch("devloop.feedback.tb5_cascade._resolve_repo_path")
+    @patch("devloop.feedback.tb5_cascade._load_dependency_map")
+    @patch("devloop.feedback.tb5_cascade._get_changed_files")
+    def test_no_watch_match_returns_empty(self, mock_changed, mock_deps, mock_resolve):
+        """Returns empty when no watch patterns match changed files."""
+        from devloop.feedback.tb5_cascade import find_cascade_targets
+
+        mock_changed.return_value = ["docs/README.md"]
+        mock_deps.return_value = [
+            {"source": "prompt-bench", "target": "omniswipe-backend",
+             "watches": ["src/api/**"], "type": "api-contract"},
+        ]
+        assert find_cascade_targets("/home/user/prompt-bench", "dl-test") == []
+
+    @patch("devloop.feedback.tb5_cascade._resolve_repo_path")
+    @patch("devloop.feedback.tb5_cascade._load_dependency_map")
+    @patch("devloop.feedback.tb5_cascade._get_changed_files")
+    def test_missing_repo_path_skips_target(self, mock_changed, mock_deps, mock_resolve):
+        """Skips target when repo_path can't be resolved."""
+        from devloop.feedback.tb5_cascade import find_cascade_targets
+
+        mock_changed.return_value = ["src/api/routes.py"]
+        mock_deps.return_value = [
+            {"source": "prompt-bench", "target": "omniswipe-backend",
+             "watches": ["src/api/**"], "type": "api-contract"},
+        ]
+        mock_resolve.return_value = None  # path not configured
+
+        assert find_cascade_targets("/home/user/prompt-bench", "dl-test") == []
+
+    @patch("devloop.feedback.tb5_cascade._get_changed_files")
+    def test_git_diff_failure_returns_empty(self, mock_changed):
+        """Returns empty list when git diff fails (fail-safe)."""
+        from devloop.feedback.tb5_cascade import find_cascade_targets
+
+        mock_changed.side_effect = RuntimeError("git diff failed")
+        assert find_cascade_targets("/home/user/prompt-bench", "dl-test") == []

@@ -22,7 +22,6 @@ import time
 from pathlib import Path
 
 import yaml
-
 from opentelemetry import trace
 
 from devloop.feedback.pipeline import (
@@ -109,6 +108,62 @@ def _match_watches(changed_files: list[str], watches: list[str]) -> list[str]:
                 matched.append(pattern)
                 break
     return matched
+
+
+def _resolve_repo_path(repo_name: str) -> str | None:
+    """Resolve a repo name to its absolute path from config/dependencies.yaml.
+
+    Returns None if the repo_paths map is missing or the name isn't found.
+    """
+    dep_file = _CONFIG_DIR / "dependencies.yaml"
+    if not dep_file.exists():
+        return None
+    raw = yaml.safe_load(dep_file.read_text(encoding="utf-8"))
+    if not raw:
+        return None
+    repo_paths = raw.get("repo_paths", {})
+    return repo_paths.get(repo_name)
+
+
+def find_cascade_targets(source_repo_path: str, issue_id: str) -> list[dict]:
+    """Find all cascade targets for a completed issue.
+
+    Called by TB-1 after successful PR creation. Returns a list of dicts,
+    each with: target_repo_name, target_repo_path, matched_watches, dependency_type.
+    Returns empty list if no cascades needed or on any error (fail-safe).
+    """
+    source_repo_name = Path(source_repo_path).name
+    try:
+        changed_files = _get_changed_files(source_repo_path, issue_id)
+    except RuntimeError:
+        logger.warning("TB-5: Could not get changed files for %s", issue_id)
+        return []
+
+    if not changed_files:
+        return []
+
+    deps = _load_dependency_map()
+    targets = []
+    for dep in deps:
+        if dep["source"] != source_repo_name:
+            continue
+        watches = dep.get("watches", [])
+        matched = _match_watches(changed_files, watches)
+        if not matched:
+            continue
+        target_path = _resolve_repo_path(dep["target"])
+        if target_path is None:
+            logger.warning(
+                "TB-5: No repo_path configured for target %s", dep["target"]
+            )
+            continue
+        targets.append({
+            "target_repo_name": dep["target"],
+            "target_repo_path": target_path,
+            "matched_watches": matched,
+            "dependency_type": dep.get("type", "unknown"),
+        })
+    return targets
 
 
 def _get_source_issue_details(issue_id: str, repo_path: str | None = None) -> dict:

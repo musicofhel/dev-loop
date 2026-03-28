@@ -187,6 +187,8 @@ _TB5_RE_EXPORTS = {
     "_load_dependency_map",
     "_match_watches",
     "_report_cascade_outcome",
+    "_resolve_repo_path",
+    "find_cascade_targets",
     "run_tb5",
     "tracer_tb5",
 }

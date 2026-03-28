@@ -80,6 +80,11 @@ class TB1Result(BaseModel):
     error: str | None = None
     duration_seconds: float = 0.0
     pr_url: str | None = None
+    # TB-5/TB-6 integration fields
+    session_id: str | None = None
+    session_path: str | None = None
+    cascade_results: list[dict] = Field(default_factory=list)
+    suggested_fix: str | None = None
 
 
 class SecurityFinding(BaseModel):
