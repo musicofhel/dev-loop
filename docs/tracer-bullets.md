@@ -156,6 +156,14 @@ just tb4 <issue_id> <repo_path>              # default turns from persona
 just tb4-turns <issue_id> <repo_path> 5      # override turn limit
 ```
 
+### Status: PASSING (2026-03-28)
+- 2 e2e runs against OOTestProject1:
+  - Default turns (bd-339): 11/10 turns, 2 attempts, 49.7s → escalated with usage breakdown
+  - Forced exhaustion (bd-2dw, max_turns=2): 3/2 turns, 8.35s → escalated
+- Per-attempt usage breakdown: turn counts, token counts, context_pct_at_exit
+- Escalation comment posted to beads with usage table
+- 38 unit tests passing
+
 ---
 
 ## TB-5: Cross-Repo Cascade (The Multi-Project Path)
@@ -190,7 +198,15 @@ just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
 just tb5 dl-abc ~/prompt-bench ~/omniswipe-backend
 ```
 
-### Status: CODE COMPLETE
+### Status: PASSING (2026-03-28)
+- 1 e2e run: OOTestProject1 (bd-tab) → prompt-bench cascade
+  - Changed files detected: src/oo_test_project/db/users.py
+  - Watch matched: src/oo_test_project/db/** (data-model dependency)
+  - Cascade issue created (bd-l1m) in target beads workspace
+  - TB-1 delegated on prompt-bench (failed at ambiguity_check — expected for auto-generated cascade issues)
+  - Outcome reported to source issue via beads comment
+- Cross-repo beads workspace fix: --parent fallback for separate beads DBs
+- 40 unit tests passing
 
 ---
 
@@ -225,7 +241,14 @@ just tb6 <issue_id> <repo_path>    # run with session capture + forced gate fail
 just tb6-replay <session_id>       # replay a saved session
 ```
 
-### Status: CODE COMPLETE
+### Status: PASSING (2026-03-28)
+- 1 e2e run against OOTestProject1 (bd-3ss):
+  - Session captured: 70 events (38 assistant, 29 user, 1 system, 1 rate_limit, 1 result)
+  - Session file: 89KB NDJSON + metadata at ~/.local/share/dev-loop/sessions/
+  - Forced gate fail → retry → gates passed (185.38s total)
+  - Suggested CLAUDE.md fix generated for gate_0_sanity
+  - Session replayable via `just tb6-replay bd-3ss-1774738946`
+- 27 unit tests passing
 
 ---
 

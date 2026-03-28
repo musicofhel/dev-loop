@@ -206,6 +206,10 @@ def _create_cascade_issue(
 ) -> str:
     """Create a cascade issue in beads for the target repo.
 
+    The issue is created in the target repo's beads workspace (via repo_path cwd).
+    Cross-repo cascades may have separate beads workspaces, so --parent is
+    attempted first and dropped if the parent issue doesn't exist in the target DB.
+
     Returns the new issue ID.
     """
     title = f"[cascade] Adapt to upstream changes from {source_issue_id}: {source_title}"
@@ -216,20 +220,44 @@ def _create_cascade_issue(
     )
     labels = f"cascade,repo:{target_repo_name}"
 
+    # Try with --parent first (works when source+target share a beads workspace)
+    cmd = [
+        "br", "create", title,
+        "--description", description,
+        "--labels", labels,
+        "--parent", source_issue_id,
+        "--silent",
+    ]
     result = subprocess.run(
-        [
-            "br", "create", title,
-            "--description", description,
-            "--labels", labels,
-            "--parent", source_issue_id,
-            "--silent",
-        ],
+        cmd,
         capture_output=True,
         text=True,
         check=False,
         timeout=30,
         cwd=repo_path,
     )
+
+    # If --parent fails (cross-repo: parent issue not in target beads), retry without it
+    if result.returncode != 0 and "ISSUE_NOT_FOUND" in (result.stdout + result.stderr):
+        logger.info(
+            "TB-5: Parent %s not in target beads; creating cascade issue without parent link",
+            source_issue_id,
+        )
+        cmd_no_parent = [
+            "br", "create", title,
+            "--description", description,
+            "--labels", labels,
+            "--silent",
+        ]
+        result = subprocess.run(
+            cmd_no_parent,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            cwd=repo_path,
+        )
+
     if result.returncode != 0:
         error_msg = result.stderr.strip() or f"br create failed with exit code {result.returncode}"
         raise RuntimeError(error_msg)
@@ -467,7 +495,7 @@ def run_tb5(source_issue_id: str, source_repo_path: str, target_repo_path: str) 
                     target_repo_name=target_repo_name,
                     matched_watches=matched_watches,
                     dependency_type=dependency_type or "unknown",
-                    repo_path=source_repo_path,
+                    repo_path=target_repo_path,
                 )
                 phase_span.set_attribute("tb5.target_issue_id", target_issue_id)
                 logger.info(
