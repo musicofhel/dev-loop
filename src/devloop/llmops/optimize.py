@@ -129,8 +129,12 @@ def run_optimization(
         valset = trainset[-2:]
         trainset = trainset[:-2]
 
-    # Configure DSPy
-    task_lm = dspy.LM(f"anthropic/{pcfg.model}", max_tokens=2048)
+    # Configure DSPy — build LiteLLM model string from provider
+    if cfg.provider == "openrouter":
+        model_str = f"openrouter/anthropic/{pcfg.model}"
+    else:
+        model_str = f"anthropic/{pcfg.model}"
+    task_lm = dspy.LM(model_str, max_tokens=2048)
     dspy.configure(lm=task_lm)
 
     # Load program and metric
@@ -158,7 +162,6 @@ def run_optimization(
             num_threads=4,
             max_bootstrapped_demos=pcfg.max_bootstrapped_demos,
             max_labeled_demos=pcfg.max_labeled_demos,
-            num_trials=pcfg.num_trials,
         )
         optimized = optimizer.compile(module, trainset=trainset, valset=valset)
     except Exception as exc:

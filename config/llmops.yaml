@@ -1,11 +1,13 @@
 # Layer 7: LLMOps — DSPy prompt optimization config
 #
 # Set enabled: true after running your first successful GEPA optimization.
-# Requires ANTHROPIC_API_KEY in .env (direct API, not Claude Code CLI).
+# Provider: "anthropic" (direct API) or "openrouter" (OpenRouter proxy).
+# Requires the corresponding API key env var to be set.
 
 llmops:
   enabled: false
-  api_key_env: ANTHROPIC_API_KEY
+  provider: openrouter
+  api_key_env: OPENROUTER_API_KEY
 
   langfuse:
     enabled: false
@@ -18,21 +20,21 @@ llmops:
 
   programs:
     code_review:
-      model: claude-sonnet-4-6
+      model: claude-opus-4-6
       max_bootstrapped_demos: 4
       max_labeled_demos: 8
       num_trials: 20
       metric_threshold: 0.7
 
     retry_prompt:
-      model: claude-sonnet-4-6
+      model: claude-opus-4-6
       max_bootstrapped_demos: 3
       max_labeled_demos: 6
       num_trials: 15
       metric_threshold: 0.5
 
     persona_select:
-      model: claude-haiku-4-5
+      model: claude-opus-4-6
       max_bootstrapped_demos: 4
       max_labeled_demos: 10
       num_trials: 10

@@ -40,10 +40,17 @@ class TestLoadLLMOpsConfig:
         """LLMOpsConfig has correct defaults."""
         cfg = LLMOpsConfig()
         assert cfg.enabled is False
+        assert cfg.provider == "anthropic"
         assert cfg.api_key_env == "ANTHROPIC_API_KEY"
         assert "artifacts" in cfg.artifact_dir
         assert "training" in cfg.training_dir
         assert cfg.programs == {}
+
+    def test_config_openrouter_provider(self):
+        """LLMOpsConfig accepts openrouter provider."""
+        cfg = LLMOpsConfig(provider="openrouter", api_key_env="OPENROUTER_API_KEY")
+        assert cfg.provider == "openrouter"
+        assert cfg.api_key_env == "OPENROUTER_API_KEY"
 
     def test_config_with_programs(self):
         """LLMOpsConfig can hold program configs."""

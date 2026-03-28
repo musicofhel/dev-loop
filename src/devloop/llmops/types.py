@@ -73,6 +73,10 @@ class LLMOpsConfig(BaseModel):
     """Top-level LLMOps configuration."""
 
     enabled: bool = False
+    provider: str = Field(
+        default="anthropic",
+        description='LLM provider: "anthropic" (direct API) or "openrouter".',
+    )
     api_key_env: str = "ANTHROPIC_API_KEY"
     artifact_dir: str = "~/.local/share/dev-loop/llmops/artifacts"
     training_dir: str = "~/.local/share/dev-loop/llmops/training"

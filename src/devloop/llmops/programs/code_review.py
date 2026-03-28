@@ -39,11 +39,32 @@ class CodeReviewModule(dspy.Module):
         )
 
 
+def _normalize_msg(text: str) -> str:
+    """Lowercase, strip backticks/quotes, collapse whitespace."""
+    import re
+
+    text = text.lower().replace("`", "").replace("'", "").replace('"', "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _word_overlap(a: str, b: str) -> float:
+    """Jaccard similarity between word sets of two normalized strings."""
+    a_words = set(_normalize_msg(a).split())
+    b_words = set(_normalize_msg(b).split())
+    if not a_words or not b_words:
+        return 0.0
+    return len(a_words & b_words) / len(a_words | b_words)
+
+
+_MATCH_THRESHOLD = 0.25
+
+
 def code_review_metric(gold, pred, trace=None) -> dspy.Prediction:
     """GEPA-compatible metric for code review quality.
 
-    Compares predicted findings against gold-standard findings using F1.
-    Returns score (0-1) and textual feedback explaining failures.
+    Compares predicted findings against gold-standard findings using F1
+    with word-overlap matching (Jaccard >= 0.25). Returns score (0-1)
+    and textual feedback explaining failures.
     """
     feedback_parts: list[str] = []
     score = 0.0
@@ -83,39 +104,44 @@ def code_review_metric(gold, pred, trace=None) -> dspy.Prediction:
         )
         return dspy.Prediction(score=0.0, feedback=" | ".join(feedback_parts))
 
-    # Match findings by message similarity (case-insensitive substring match)
-    gold_messages = {f.get("message", "").lower() for f in gold_findings}
-    pred_messages = {f.get("message", "").lower() for f in pred_findings}
+    # Match findings by word overlap (Jaccard similarity)
+    gold_msgs = [f.get("message", "") for f in gold_findings]
+    pred_msgs = [f.get("message", "") for f in pred_findings]
+    gold_sevs = [f.get("severity", "") for f in gold_findings]
+    pred_sevs = [f.get("severity", "") for f in pred_findings]
 
-    # True positives: predicted findings that match a gold finding
+    matched_gold: set[int] = set()
     tp = 0
-    for pm in pred_messages:
-        if any(gm in pm or pm in gm for gm in gold_messages if gm and pm):
+    severity_matches = 0
+    severity_total = 0
+
+    for pi, pm in enumerate(pred_msgs):
+        best_score = 0.0
+        best_gi = -1
+        for gi, gm in enumerate(gold_msgs):
+            if gi in matched_gold:
+                continue
+            sim = _word_overlap(pm, gm)
+            if sim > best_score:
+                best_score = sim
+                best_gi = gi
+        if best_score >= _MATCH_THRESHOLD and best_gi >= 0:
+            matched_gold.add(best_gi)
             tp += 1
+            severity_total += 1
+            if pred_sevs[pi] == gold_sevs[best_gi]:
+                severity_matches += 1
+            else:
+                feedback_parts.append(
+                    f"Severity mismatch: predicted '{pred_sevs[pi]}' but expected "
+                    f"'{gold_sevs[best_gi]}' for '{pm[:60]}...'."
+                )
 
     precision = tp / len(pred_findings) if pred_findings else 0.0
     recall = tp / len(gold_findings) if gold_findings else 0.0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
     score = f1
-
-    # Severity accuracy bonus
-    gold_severities = {f.get("message", "").lower(): f.get("severity", "") for f in gold_findings}
-    pred_severities = {f.get("message", "").lower(): f.get("severity", "") for f in pred_findings}
-    severity_matches = 0
-    severity_total = 0
-    for pm, ps in pred_severities.items():
-        for gm, gs in gold_severities.items():
-            if gm in pm or pm in gm:
-                severity_total += 1
-                if ps == gs:
-                    severity_matches += 1
-                else:
-                    feedback_parts.append(
-                        f"Severity mismatch: predicted '{ps}' but expected '{gs}' "
-                        f"for '{pm[:60]}...'."
-                    )
-                break
 
     if severity_total > 0:
         severity_acc = severity_matches / severity_total

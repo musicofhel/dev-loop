@@ -30,6 +30,7 @@ def _load_llmops_config() -> LLMOpsConfig:
         programs[name] = OptimizationConfig(**pcfg)
     return LLMOpsConfig(
         enabled=llmops.get("enabled", False),
+        provider=llmops.get("provider", "anthropic"),
         api_key_env=llmops.get("api_key_env", "ANTHROPIC_API_KEY"),
         artifact_dir=llmops.get("artifact_dir", "~/.local/share/dev-loop/llmops/artifacts"),
         training_dir=llmops.get("training_dir", "~/.local/share/dev-loop/llmops/training"),
