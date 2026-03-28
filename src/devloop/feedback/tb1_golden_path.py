@@ -163,6 +163,35 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 poll_span.set_attribute("tb1.ready_count", len(items))
 
             # ----------------------------------------------------------
+            # Phase 1b: Ambiguity check (safety net for direct invocations)
+            # ----------------------------------------------------------
+            with tracer.start_as_current_span(
+                "tb1.phase.ambiguity_check",
+                attributes={"tb1.phase": "ambiguity_check"},
+            ) as ambiguity_span:
+                from devloop.intake.ambiguity import detect_ambiguity
+
+                ambiguity_result = detect_ambiguity(issue_title, issue_description)
+                ambiguity_span.set_attribute("tb1.ambiguity_score", ambiguity_result.score)
+                ambiguity_span.set_attribute("tb1.is_ambiguous", ambiguity_result.is_ambiguous)
+
+                if ambiguity_result.is_ambiguous:
+                    elapsed = time.monotonic() - pipeline_start
+                    ambiguity_span.set_status(
+                        trace.StatusCode.ERROR,
+                        f"Issue deferred as ambiguous: {ambiguity_result.summary}",
+                    )
+                    root_span.set_status(trace.StatusCode.ERROR, "Issue ambiguous")
+                    return TB1Result(
+                        issue_id=issue_id,
+                        repo_path=repo_path,
+                        success=False,
+                        phase="ambiguity_check",
+                        error=f"Issue deferred as ambiguous: {ambiguity_result.summary}",
+                        duration_seconds=round(elapsed, 2),
+                    ).model_dump()
+
+            # ----------------------------------------------------------
             # Phase 2: Claim the issue (optimistic locking)
             # ----------------------------------------------------------
             with tracer.start_as_current_span(
