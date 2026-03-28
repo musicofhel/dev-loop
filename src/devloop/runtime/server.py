@@ -232,7 +232,6 @@ def _read_session_context_pct(worktree_path: str) -> float | None:
         return None
 
     # Find session files modified in the last 5 minutes
-    cutoff = time.monotonic()
     candidates: list[tuple[float, Path]] = []
     try:
         for f in sessions_dir.iterdir():

@@ -489,6 +489,24 @@ lint:
 test:
     uv run pytest
 
+# Run tests with coverage
+test-cov:
+    uv run pytest --cov=devloop --cov-report=term-missing
+
 # Format code
 fmt:
     uv run ruff format src/
+
+# Validate all YAML config files against schemas
+validate-config:
+    uv run python -c "from devloop.config_schemas import validate_all; r = validate_all(); [print(f'  {k}: {v}') for k,v in r.items()]"
+
+# Validate harness config, imports, and core TB tests
+self-test:
+    @echo "=== Config validation ==="
+    just validate-config
+    @echo "=== Import check ==="
+    uv run python -c "from devloop.feedback.pipeline import run_tb1, run_tb2, run_tb3, run_tb4, run_tb5, run_tb6, run_tb7; print('  All TB imports OK')"
+    @echo "=== Core TB unit tests ==="
+    uv run pytest tests/test_tb1.py tests/test_tb5.py tests/test_tb6.py tests/test_config_validation.py -q
+    @echo "=== Self-test passed ==="

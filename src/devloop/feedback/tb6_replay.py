@@ -19,7 +19,6 @@ from pathlib import Path
 from opentelemetry import trace
 
 from devloop.feedback.pipeline import (
-    PipelineTimeout,
     _clear_pipeline_timeout,
     _load_allowed_tools,
     _make_forced_failure,
@@ -31,7 +30,7 @@ from devloop.feedback.pipeline import (
 from devloop.feedback.server import escalate_to_human, retry_agent
 from devloop.feedback.types import SessionEvent, TB6Result
 from devloop.gates.server import run_all_gates
-from devloop.gates.types import GateResult, GateSuiteResult, Finding
+from devloop.gates.types import GateSuiteResult
 from devloop.intake.beads_poller import claim_issue, get_issue, poll_ready
 from devloop.observability.heartbeat import start_heartbeat, stop_heartbeat
 from devloop.observability.tracing import init_tracing

@@ -24,10 +24,9 @@ from opentelemetry import trace
 from opentelemetry.trace import Link
 
 from devloop.feedback.pipeline import (
-    _clear_pipeline_timeout,
     _FIXTURES_DIR,
+    _clear_pipeline_timeout,
     _latest_failure_gate,
-    _load_allowed_tools,
     _set_pipeline_timeout,
     _span_id_hex,
     _trace_id_hex,
@@ -36,7 +35,7 @@ from devloop.feedback.pipeline import (
 )
 from devloop.feedback.server import escalate_to_human, retry_agent
 from devloop.feedback.types import RetryAttempt, SecurityFinding, TB3Result
-from devloop.gates.server import run_all_gates, run_gate_3_security_standalone
+from devloop.gates.server import run_gate_3_security_standalone
 from devloop.gates.types import Finding, GateResult, GateSuiteResult
 from devloop.intake.beads_poller import claim_issue, get_issue, poll_ready
 from devloop.observability.heartbeat import start_heartbeat, stop_heartbeat

@@ -28,8 +28,8 @@ VALID_MODELS = {"opus", "sonnet", "haiku"}
 from devloop.orchestration.types import (
     ClaudeOverlay,
     CleanupResult,
-    PRResult,
     PersonaConfig,
+    PRResult,
     WorktreeInfo,
 )
 from devloop.paths import WORKTREE_BASE

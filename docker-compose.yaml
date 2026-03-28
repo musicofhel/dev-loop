@@ -12,6 +12,12 @@ services:
       ZO_ROOT_USER_EMAIL: admin@dev-loop.local
       ZO_ROOT_USER_PASSWORD: devloop123
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   langfuse-db:
     image: postgres:16-alpine
@@ -22,6 +28,11 @@ services:
     volumes:
       - langfuse-db-data:/var/lib/postgresql/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   langfuse:
     image: langfuse/langfuse:2
@@ -34,8 +45,15 @@ services:
       SALT: dev-loop-salt
       TELEMETRY_ENABLED: "false"
     depends_on:
-      - langfuse-db
+      langfuse-db:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/public/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   dev-loop-oo-data:

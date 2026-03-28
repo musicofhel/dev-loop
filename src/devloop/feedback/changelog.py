@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from opentelemetry import trace
 
@@ -123,7 +123,7 @@ def generate_changelog(days: int = 7) -> dict:
             by_repo.setdefault(repo, []).append(entry)
 
         # Format as Markdown
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         lines: list[str] = []
         lines.append(f"## Changelog — {days}-day window (generated {now.strftime('%Y-%m-%d')})")
         lines.append("")

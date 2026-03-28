@@ -25,8 +25,8 @@ from opentelemetry import trace
 from opentelemetry.trace import Link
 
 from devloop.feedback.pipeline import (
-    _clear_pipeline_timeout,
     _FIXTURES_DIR,
+    _clear_pipeline_timeout,
     _latest_failure_gate,
     _load_allowed_tools,
     _set_pipeline_timeout,
