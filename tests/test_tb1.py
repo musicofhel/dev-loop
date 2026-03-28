@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from devloop.intake.ambiguity import AmbiguityResult
 from devloop.intake.beads_poller import WorkItem
 
 # ---------------------------------------------------------------------------
