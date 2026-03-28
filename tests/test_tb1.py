@@ -57,6 +57,10 @@ def tb1_mocks(tmp_path):
         "_read_handoff": patch(f"{_M}._read_handoff", return_value=None),
         "_clear_handoff": patch(f"{_M}._clear_handoff"),
         "subprocess_run": patch(f"{_M}.subprocess.run"),
+        "detect_ambiguity": patch(
+            "devloop.intake.ambiguity.detect_ambiguity",
+            return_value=AmbiguityResult(is_ambiguous=False, score=0.0, signals=[], title="", description=""),
+        ),
     }
 
     mocks = {}

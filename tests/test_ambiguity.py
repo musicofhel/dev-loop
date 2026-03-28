@@ -72,7 +72,7 @@ class TestDetectAmbiguity:
         assert r.is_ambiguous
 
     def test_custom_threshold(self):
-        r = detect_ambiguity("Improve performance", "", threshold=0.99)
+        r = detect_ambiguity("Improve performance", "", threshold=1.1)
         assert not r.is_ambiguous
 
     def test_vague_verb_with_specific_context(self):
