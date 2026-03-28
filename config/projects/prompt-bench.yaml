@@ -2,6 +2,8 @@
 # Primary test target for TB-1 through TB-4
 
 quality_gates:
+  differential:
+    enabled: true
   sanity:
     enabled: true
     commands: ["npm test", "npm run lint"]

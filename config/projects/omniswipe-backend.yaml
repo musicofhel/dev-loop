@@ -2,6 +2,8 @@
 # Fastify + PostgreSQL + Prisma 7 API server
 
 quality_gates:
+  differential:
+    enabled: true
   sanity:
     enabled: true
     commands: ["npm test", "npx tsc --noEmit"]
