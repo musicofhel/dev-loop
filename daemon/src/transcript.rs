@@ -79,7 +79,6 @@ pub fn find_transcript(session_id: &str) -> Option<PathBuf> {
 /// Before parsing, polls the last 4KB of the transcript file for a
 /// `"type":"result"` or `"stop_reason"` marker. Ensures async writes
 /// complete before parsing. Returns true if marker found, false on timeout.
-#[allow(dead_code)]
 pub fn wait_for_flush(path: &Path, timeout: std::time::Duration) -> bool {
     let start = std::time::Instant::now();
     while start.elapsed() < timeout {

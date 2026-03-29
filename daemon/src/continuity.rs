@@ -89,7 +89,6 @@ pub fn write_handoff(handoff: &Handoff) -> Result<PathBuf, String> {
 }
 
 /// Read a handoff YAML from disk.
-#[allow(dead_code)]
 pub fn read_handoff(session_id: &str) -> Option<Handoff> {
     let path = handoff_path(session_id);
     let content = std::fs::read_to_string(&path).ok()?;

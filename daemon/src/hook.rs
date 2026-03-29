@@ -778,6 +778,8 @@ fn write_session_handoff(
     let transcript_path = transcript::find_transcript(session_id);
     let (files_modified, files_created, token_estimate, goal, now, test_plan) = match transcript_path {
         Some(ref path) => {
+            // Wait briefly for async writes to flush before parsing
+            transcript::wait_for_flush(path, std::time::Duration::from_millis(500));
             let summary = transcript::parse_transcript(path);
             let token_est = if summary.total_tokens() > 0 {
                 Some(continuity::TokenEstimate {

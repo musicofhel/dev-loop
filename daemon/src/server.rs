@@ -647,6 +647,26 @@ async fn handle_checkpoint(
 
     let cwd = &request.cwd;
 
+    // Early exit if Tier 2 is globally disabled
+    if !crate::config::is_enabled_tier2() {
+        let result = checkpoint::CheckpointResult {
+            passed: true,
+            gates_run: 0,
+            gates_passed: 0,
+            gates_failed: 0,
+            first_failure: None,
+            trailer: None,
+            gate_results: vec![],
+            duration_ms: 0,
+        };
+        let body = serde_json::to_string(&result).unwrap();
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "application/json")
+            .body(Full::new(Bytes::from(body)))
+            .unwrap();
+    }
+
     // Load merged config for this repo to get checkpoint settings
     let mut merged = crate::config::load_merged(Some(cwd));
 

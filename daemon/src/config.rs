@@ -547,7 +547,6 @@ pub fn is_enabled_tier1() -> bool {
     config.enabled && config.tier1
 }
 
-#[allow(dead_code)]
 pub fn is_enabled_tier2() -> bool {
     let config = load();
     config.enabled && config.tier2
