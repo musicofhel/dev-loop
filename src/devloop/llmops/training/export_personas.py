@@ -157,11 +157,14 @@ def export_personas(
     sessions_dir: str | None = None,
     output_path: str | None = None,
     max_sessions: int = 200,
+    force: bool = False,
 ) -> int:
     """Export persona selection data from session JSONLs.
 
     Returns the number of examples exported.
     """
+    from devloop.llmops.training import safe_write_jsonl
+
     if sessions_dir is None:
         from devloop.llmops.training import _default_sessions_dir
 
@@ -175,33 +178,31 @@ def export_personas(
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     files = sorted(glob.glob(os.path.join(sessions_dir, "*.jsonl")))[:max_sessions]
-    exported = 0
+    examples: list[dict] = []
 
-    with open(output_path, "w") as out:
-        for fpath in files:
-            events = []
-            with open(fpath) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        events.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
+    for fpath in files:
+        events = []
+        with open(fpath) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
 
-            example = _extract_persona_data(events)
-            if example is None:
-                continue
+        example = _extract_persona_data(events)
+        if example is None:
+            continue
 
-            example["metadata"] = {
-                "session_id": os.path.basename(fpath).replace(".jsonl", ""),
-                "source": "persona_session",
-            }
-            out.write(json.dumps(example) + "\n")
-            exported += 1
+        example["metadata"] = {
+            "session_id": os.path.basename(fpath).replace(".jsonl", ""),
+            "source": "persona_session",
+        }
+        examples.append(example)
 
-    return exported
+    return safe_write_jsonl(output_path, examples, force=force)
 
 
 if __name__ == "__main__":
@@ -215,6 +216,7 @@ if __name__ == "__main__":
     elif not glob.glob(os.path.join(sessions_dir, "*.jsonl")):
         print(f"WARNING: No .jsonl files in {sessions_dir}", file=sys.stderr)
 
-    count = export_personas()
+    force = "--force" in sys.argv
+    count = export_personas(force=force)
     print(f"Exported {count} persona selection examples")
     print("Output: ~/.local/share/dev-loop/llmops/training/persona_select.jsonl")

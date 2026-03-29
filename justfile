@@ -459,6 +459,14 @@ llmops-export:
     uv run python -m devloop.llmops.training.export_personas
     @echo "Training data exported to ~/.local/share/dev-loop/llmops/training/"
 
+# Export training data, forcing overwrite even if 0 examples
+llmops-export-force:
+    @echo "Exporting training data (force overwrite)..."
+    uv run python -m devloop.llmops.training.export_reviews --force
+    uv run python -m devloop.llmops.training.export_retries --force
+    uv run python -m devloop.llmops.training.export_personas --force
+    @echo "Training data exported (force mode)."
+
 # Run GEPA optimization for a DSPy program
 # Usage: just llmops-optimize code_review
 llmops-optimize PROGRAM:

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import dspy
+
+logger = logging.getLogger(__name__)
 
 
 class CodeReview(dspy.Signature):
@@ -71,7 +74,7 @@ def _combined_similarity(a: str, b: str) -> float:
     return max(_word_overlap(a, b), _sequence_similarity(a, b))
 
 
-_MATCH_THRESHOLD = 0.20
+_MATCH_THRESHOLD = 0.30
 
 
 def code_review_metric(gold, pred, trace=None) -> dspy.Prediction:
@@ -158,9 +161,17 @@ def code_review_metric(gold, pred, trace=None) -> dspy.Prediction:
 
     score = f1
 
+    severity_acc = 0.0
     if severity_total > 0:
         severity_acc = severity_matches / severity_total
         score = 0.7 * f1 + 0.3 * severity_acc
+
+    logger.debug(
+        "code_review_metric: gold=%d pred=%d tp=%d P=%.3f R=%.3f "
+        "F1=%.3f sev=%.3f score=%.3f",
+        len(gold_findings), len(pred_findings), tp,
+        precision, recall, f1, severity_acc, score,
+    )
 
     # Feedback for missed findings
     missed = len(gold_findings) - tp

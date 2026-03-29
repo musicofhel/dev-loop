@@ -18,6 +18,7 @@ import dspy
 
 from devloop.llmops.programs.code_review import (
     _MATCH_THRESHOLD,
+    _combined_similarity,
     _word_overlap,
     code_review_metric,
 )
@@ -85,13 +86,13 @@ def diagnose_example(gold, pred_findings_json: str) -> dict:
         matched = 0
         severity_mismatches = 0
         for pm in pred_msgs:
-            best = max((_word_overlap(pm, gm) for gm in gold_msgs), default=0.0)
+            best = max((_combined_similarity(pm, gm) for gm in gold_msgs), default=0.0)
             if best >= _MATCH_THRESHOLD:
                 matched += 1
                 # Check severity
                 best_gi = max(
                     range(len(gold_msgs)),
-                    key=lambda gi: _word_overlap(pm, gold_msgs[gi]),
+                    key=lambda gi: _combined_similarity(pm, gold_msgs[gi]),
                 )
                 if pred_findings[pred_msgs.index(pm)].get("severity") != gold_findings[
                     best_gi

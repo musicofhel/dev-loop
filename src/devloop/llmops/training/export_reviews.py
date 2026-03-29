@@ -152,11 +152,14 @@ def export_reviews(
     sessions_dir: str | None = None,
     output_path: str | None = None,
     max_sessions: int = 200,
+    force: bool = False,
 ) -> int:
     """Export Gate 4 review data from session JSONLs.
 
     Returns the number of examples exported.
     """
+    from devloop.llmops.training import safe_write_jsonl
+
     if sessions_dir is None:
         from devloop.llmops.training import _default_sessions_dir
 
@@ -170,57 +173,54 @@ def export_reviews(
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     files = sorted(glob.glob(os.path.join(sessions_dir, "*.jsonl")))[:max_sessions]
-    exported = 0
+    examples: list[dict] = []
 
-    with open(output_path, "w") as out:
-        for fpath in files:
-            # Parse all events from the session
-            events = []
-            with open(fpath) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        events.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-
-            # Find review prompts and their responses
-            for i, evt in enumerate(events):
-                msg = evt.get("message", {})
-                content = msg.get("content", "")
-                if not isinstance(content, str):
+    for fpath in files:
+        # Parse all events from the session
+        events = []
+        with open(fpath) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
                     continue
 
-                parsed = _parse_review_prompt(content)
-                if parsed is None:
-                    continue
+        # Find review prompts and their responses
+        for i, evt in enumerate(events):
+            msg = evt.get("message", {})
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                continue
 
-                # Find the corresponding response
-                findings_json = _find_review_response(events, i)
-                if findings_json is None:
-                    # No parseable response — skip to avoid false-negative training data
-                    continue
+            parsed = _parse_review_prompt(content)
+            if parsed is None:
+                continue
 
-                example = {
-                    "inputs": {
-                        "diff": parsed["diff"][:50000],  # cap large diffs
-                        "issue_context": parsed["issue_context"],
-                        "review_criteria": parsed["review_criteria"],
-                    },
-                    "outputs": {
-                        "findings_json": findings_json,
-                    },
-                    "metadata": {
-                        "session_id": os.path.basename(fpath).replace(".jsonl", ""),
-                        "source": "gate4_session",
-                    },
-                }
-                out.write(json.dumps(example) + "\n")
-                exported += 1
+            # Find the corresponding response
+            findings_json = _find_review_response(events, i)
+            if findings_json is None:
+                # No parseable response — skip to avoid false-negative training data
+                continue
 
-    return exported
+            examples.append({
+                "inputs": {
+                    "diff": parsed["diff"][:50000],  # cap large diffs
+                    "issue_context": parsed["issue_context"],
+                    "review_criteria": parsed["review_criteria"],
+                },
+                "outputs": {
+                    "findings_json": findings_json,
+                },
+                "metadata": {
+                    "session_id": os.path.basename(fpath).replace(".jsonl", ""),
+                    "source": "gate4_session",
+                },
+            })
+
+    return safe_write_jsonl(output_path, examples, force=force)
 
 
 if __name__ == "__main__":
@@ -234,6 +234,7 @@ if __name__ == "__main__":
     elif not glob.glob(os.path.join(sessions_dir, "*.jsonl")):
         print(f"WARNING: No .jsonl files in {sessions_dir}", file=sys.stderr)
 
-    count = export_reviews()
+    force = "--force" in sys.argv
+    count = export_reviews(force=force)
     print(f"Exported {count} code review examples")
     print("Output: ~/.local/share/dev-loop/llmops/training/code_review.jsonl")

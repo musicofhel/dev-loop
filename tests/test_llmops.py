@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -470,6 +471,168 @@ class TestTB7Helpers:
         assert result.success is True
         assert result.dspy_finding_count == 0
         assert result.latency_ratio == 0.0
+
+
+# ---------------------------------------------------------------------------
+# safe_write_jsonl
+# ---------------------------------------------------------------------------
+
+
+class TestSafeWriteJsonl:
+    """Tests for safe_write_jsonl backup and zero-example guard."""
+
+    def test_creates_backup_before_overwrite(self, tmp_path):
+        """Existing file gets a .bak.YYYYMMDD backup before overwrite."""
+        from devloop.llmops.training import safe_write_jsonl
+
+        path = str(tmp_path / "data.jsonl")
+        # Write 5 existing lines
+        with open(path, "w") as f:
+            for i in range(5):
+                f.write(json.dumps({"id": i}) + "\n")
+
+        new_examples = [{"id": 100}, {"id": 101}, {"id": 102}]
+        count = safe_write_jsonl(path, new_examples)
+
+        assert count == 3
+        # Original file has new data
+        with open(path) as f:
+            lines = f.readlines()
+        assert len(lines) == 3
+
+        # Backup exists
+        from datetime import datetime, timezone
+
+        date_stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        backup = f"{path}.bak.{date_stamp}"
+        assert os.path.isfile(backup)
+        with open(backup) as f:
+            backup_lines = f.readlines()
+        assert len(backup_lines) == 5
+
+    def test_zero_examples_skips_overwrite(self, tmp_path, capsys):
+        """Zero examples + force=False preserves existing data."""
+        from devloop.llmops.training import safe_write_jsonl
+
+        path = str(tmp_path / "data.jsonl")
+        with open(path, "w") as f:
+            for i in range(10):
+                f.write(json.dumps({"id": i}) + "\n")
+
+        count = safe_write_jsonl(path, [], force=False)
+
+        assert count == 0
+        # File still has original 10 lines
+        with open(path) as f:
+            lines = f.readlines()
+        assert len(lines) == 10
+
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+        assert "0 examples" in captured.err
+
+    def test_zero_examples_force_overwrites(self, tmp_path):
+        """Zero examples + force=True overwrites to empty."""
+        from devloop.llmops.training import safe_write_jsonl
+
+        path = str(tmp_path / "data.jsonl")
+        with open(path, "w") as f:
+            for i in range(10):
+                f.write(json.dumps({"id": i}) + "\n")
+
+        count = safe_write_jsonl(path, [], force=True)
+
+        assert count == 0
+        with open(path) as f:
+            lines = f.readlines()
+        assert len(lines) == 0
+
+        # Backup was still created
+        from datetime import datetime, timezone
+
+        date_stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        backup = f"{path}.bak.{date_stamp}"
+        assert os.path.isfile(backup)
+        with open(backup) as f:
+            backup_lines = f.readlines()
+        assert len(backup_lines) == 10
+
+    def test_no_existing_file_writes_normally(self, tmp_path):
+        """New file created without backup."""
+        from devloop.llmops.training import safe_write_jsonl
+
+        path = str(tmp_path / "new.jsonl")
+        examples = [{"id": i} for i in range(5)]
+        count = safe_write_jsonl(path, examples)
+
+        assert count == 5
+        with open(path) as f:
+            lines = f.readlines()
+        assert len(lines) == 5
+
+        # No backup files
+        import glob as g
+
+        backups = g.glob(f"{path}.bak.*")
+        assert len(backups) == 0
+
+    def test_existing_empty_file_no_backup(self, tmp_path):
+        """Empty file gets no backup (nothing to preserve)."""
+        from devloop.llmops.training import safe_write_jsonl
+
+        path = str(tmp_path / "empty.jsonl")
+        open(path, "w").close()  # create empty file
+
+        examples = [{"id": i} for i in range(3)]
+        count = safe_write_jsonl(path, examples)
+
+        assert count == 3
+        import glob as g
+
+        backups = g.glob(f"{path}.bak.*")
+        assert len(backups) == 0
+
+
+# ---------------------------------------------------------------------------
+# Balance code review
+# ---------------------------------------------------------------------------
+
+
+class TestBalanceCodeReview:
+    """Tests for _balance_code_review oversampling."""
+
+    def test_2x_oversampling(self):
+        """Clean diffs are oversampled 2x."""
+        import dspy
+
+        from devloop.llmops.optimize import _balance_code_review
+
+        with_findings = [
+            dspy.Example(findings_json=json.dumps([{"severity": "warning", "message": f"issue {i}"}]))
+            for i in range(8)
+        ]
+        clean = [dspy.Example(findings_json="[]") for _ in range(2)]
+        all_examples = with_findings + clean
+
+        balanced = _balance_code_review(all_examples)
+        # 8 with-findings + 2 clean * 2 = 12
+        assert len(balanced) == 12
+
+    def test_already_balanced_no_change(self):
+        """When clean > 35%, no oversampling applied."""
+        import dspy
+
+        from devloop.llmops.optimize import _balance_code_review
+
+        with_findings = [
+            dspy.Example(findings_json=json.dumps([{"severity": "warning", "message": f"issue {i}"}]))
+            for i in range(6)
+        ]
+        clean = [dspy.Example(findings_json="[]") for _ in range(4)]
+        all_examples = with_findings + clean  # 40% clean
+
+        balanced = _balance_code_review(all_examples)
+        assert len(balanced) == 10  # unchanged
 
 
 class TestDefaultSessionsDir:

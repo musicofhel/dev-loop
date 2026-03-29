@@ -77,8 +77,9 @@ def _balance_code_review(examples: list) -> list:
     if not clean or len(clean) / len(examples) > 0.35:
         return examples  # already balanced enough
 
-    # Oversample clean diffs 3x
-    balanced = with_findings + clean * 3
+    # Oversample clean diffs 2x
+    balanced = with_findings + clean * 2
+    print(f"  Balance: {len(with_findings)} findings + {len(clean)}x2 clean = {len(balanced)}")
     return balanced
 
 
@@ -176,7 +177,7 @@ def run_optimization(
 
     # Evaluate baseline (unoptimized)
     baseline_scores = []
-    for ex in valset[:5]:
+    for ex in valset:
         try:
             pred = module(**{k: ex[k] for k in ex._input_keys})
             result = metric(ex, pred)
