@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How dev-loop Works: A Safety Harness for AI Coding Agents</title>
+  <meta name="description" content="A deep dive into dev-loop's three-tier safety model, seven-layer architecture, and closed-loop optimization for AI-assisted development.">
+  <meta property="og:title" content="How dev-loop Works: A Safety Harness for AI Coding Agents">
+  <meta property="og:description" content="Real-time interception, commit-time gates, and DSPy prompt optimization — how dev-loop keeps AI agents from breaking your codebase.">
+  <meta property="og:type" content="article">
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="../" class="nav-brand">dev<span>-loop</span></a>
+    <ul class="nav-links">
+      <li><a href="../#how-it-works">Features</a></li>
+      <li><a href="../#safety">Safety</a></li>
+      <li><a href="../#layers">Architecture</a></li>
+      <li><a href="./">Blog</a></li>
+      <li><a href="https://github.com/musicofhel/dev-loop">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Blog header -->
+<div class="blog-hero">
+  <h1>How dev-loop Works</h1>
+  <p class="blog-meta">
+    A deep dive into the safety harness for AI coding agents
+    &middot; March 2026
+  </p>
+</div>
+
+<!-- Article -->
+<article>
+
+<p>
+  AI coding agents like Claude Code are remarkably capable. They can read your codebase, write new features, fix bugs, run tests, and commit code &mdash; all autonomously. But that same autonomy is the risk. An agent can delete your <code>.env</code> file, leak API keys in a commit, run <code>rm -rf /</code>, or push broken code to production. The faster the agent works, the more damage it can do before you notice.
+</p>
+
+<p>
+  <strong>dev-loop</strong> is a safety harness that sits between the AI agent and your codebase. It intercepts every action the agent takes, checks it against configurable safety rules, and blocks anything dangerous &mdash; all in under 5 milliseconds. For deeper checks like security scanning and test execution, it runs a full gate sequence at commit time.
+</p>
+
+<p>
+  But it goes further than just blocking bad actions. dev-loop is a closed-loop system: it observes every agent session, scores the quality of its own safety checks, and uses that feedback to optimize both the safety rules and the agent's prompts over time. The result is a system that gets better at protecting you the more you use it.
+</p>
+
+<h2>The Problem</h2>
+
+<p>
+  When you give an AI agent access to your terminal and filesystem, you're trusting it not to do anything destructive. That trust works most of the time &mdash; but "most of the time" isn't good enough when the agent has <code>sudo</code> access and your production credentials are in a <code>.env</code> file two directories up.
+</p>
+
+<p>The failure modes are varied:</p>
+<ul>
+  <li><strong>Accidental file destruction</strong> &mdash; the agent writes to <code>.env</code>, <code>.ssh/config</code>, or <code>*.key</code> files</li>
+  <li><strong>Dangerous commands</strong> &mdash; <code>rm -rf</code>, <code>git push --force</code>, <code>DROP TABLE</code>, <code>curl | sh</code></li>
+  <li><strong>Secret leakage</strong> &mdash; API keys, database credentials, or private keys committed to the repo</li>
+  <li><strong>Runaway sessions</strong> &mdash; the agent burns through context, tokens, and time without making progress</li>
+  <li><strong>Quality drift</strong> &mdash; code that passes the agent's review but fails tests, introduces vulnerabilities, or doesn't match the spec</li>
+</ul>
+
+<p>
+  You could review every action manually, but that defeats the purpose of having an autonomous agent. You need something that watches continuously, blocks the dangerous stuff instantly, and catches the subtle stuff at commit time &mdash; without slowing the agent down.
+</p>
+
+<h2>The Three-Tier Safety Model</h2>
+
+<p>
+  dev-loop uses three tiers of protection, from instant to thorough. Each tier catches a different class of problem at a different point in the workflow.
+</p>
+
+<h3>Tier 1: Real-Time Check Engine (&lt; 5ms)</h3>
+
+<p>
+  The first tier runs on <strong>every single tool call</strong> the agent makes. When the agent tries to write a file, edit a file, or run a shell command, dev-loop's Rust daemon intercepts the call and runs three check modules:
+</p>
+
+<ul>
+  <li><strong>Deny List</strong> (17 patterns) &mdash; Blocks writes to sensitive files like <code>.env</code>, <code>.ssh/*</code>, <code>*.key</code>, <code>*.pem</code>, <code>credentials.*</code>, and anything with "secret" in the name.</li>
+  <li><strong>Dangerous Ops</strong> (25 patterns) &mdash; Catches risky shell commands: <code>rm -rf</code>, force push, <code>DROP TABLE</code>, <code>curl | sh</code>, <code>chmod 777</code>, <code>sudo rm</code>, and more. Some block outright; others warn.</li>
+  <li><strong>Secret Scanner</strong> (15 patterns) &mdash; Regex-based detection of API keys (AWS, OpenAI, GitHub PATs, Slack tokens), private key headers, database connection strings with passwords, and high-entropy secret assignments.</li>
+</ul>
+
+<p>
+  The entire check runs in under 5 milliseconds. The agent doesn't even notice the latency. If a check fails, the tool call is blocked before it executes &mdash; the dangerous write never touches disk, the destructive command never runs.
+</p>
+
+<div class="callout">
+  <div class="callout-title">How the hooks work</div>
+  <p>dev-loop integrates with Claude Code via six hooks. <code>PreToolUse</code> fires before Write, Edit, and Bash calls to check for blocked files and dangerous commands. <code>PostToolUse</code> fires after writes to scan content for secrets. Four other hooks manage session lifecycle: <code>SessionStart</code>, <code>SessionEnd</code>, <code>Stop</code> (context guard at 85% usage), and <code>PreCompact</code> (saves state before context trimming). All hooks are fail-open &mdash; if the daemon is unavailable, tool calls proceed normally.</p>
+  </div>
+
+<h3>Tier 2: Checkpoint Gates (~30 seconds)</h3>
+
+<p>
+  The second tier runs at <strong>commit time</strong>. Five gates execute in sequence, and the first failure blocks the commit:
+</p>
+
+<ol>
+  <li><strong>Sanity</strong> &mdash; Auto-detects the project's test runner (pytest, jest, cargo test, etc.) and runs the test suite</li>
+  <li><strong>Semgrep</strong> &mdash; Static analysis for known vulnerability patterns (SQL injection, XSS, command injection, etc.)</li>
+  <li><strong>Secrets</strong> &mdash; Scans the staged diff for leaked credentials (more thorough than Tier 1's per-file scan)</li>
+  <li><strong>ATDD</strong> &mdash; Checks that code matches acceptance specs (if the project has them)</li>
+  <li><strong>Review</strong> &mdash; Placeholder for human or LLM code review</li>
+</ol>
+
+<p>
+  When all gates pass, a <code>Dev-Loop-Gate: &lt;sha256&gt;</code> trailer is added to the commit message, creating an auditable chain of gated commits. Individual gates can be temporarily disabled with <code>dl kill &lt;gate&gt;</code> when you need to bypass them (escape hatches, not locked gates).
+</p>
+
+<h3>Tier 3: Full Pipeline (On Demand)</h3>
+
+<p>
+  The third tier is the complete seven-layer closed loop. You give it a bug report or feature request, and it:
+</p>
+
+<ol>
+  <li>Pulls the issue from the tracker</li>
+  <li>Creates an isolated git worktree for the agent</li>
+  <li>Runs the AI agent with scoped permissions</li>
+  <li>Runs quality gates on the agent's output</li>
+  <li>Records everything for debugging</li>
+  <li>If it fails &mdash; retries with feedback from the failure</li>
+  <li>If it succeeds &mdash; creates a PR for human review</li>
+</ol>
+
+<h2>The Seven-Layer Architecture</h2>
+
+<p>
+  dev-loop is organized as seven layers that form a closed loop. This isn't just an organizational metaphor &mdash; the output of each layer literally feeds back as input to earlier layers. The system learns from its own behavior.
+</p>
+
+<h3>Layer 1: Intake</h3>
+
+<p>
+  The intake layer pulls issues from the project's tracker (dev-loop uses <strong>beads</strong>, a lightweight issue tracker with dependency resolution). It resolves blocking relationships, assigns priority, and feeds ready-to-work issues to the orchestration layer.
+</p>
+
+<p>
+  Key commands: <code>br ready</code> shows what's ready to work on, <code>br graph</code> visualizes the dependency graph. The intake layer also tracks DORA metrics (deployment frequency, lead time, failure rate, recovery time) for the team's dashboards.
+</p>
+
+<h3>Layer 2: Orchestration</h3>
+
+<p>
+  When an issue is ready, the orchestration layer creates an isolated environment for the agent. This means:
+</p>
+
+<ul>
+  <li><strong>Git worktree isolation</strong> &mdash; each agent works in its own worktree, so there's no shared mutable state between concurrent agents</li>
+  <li><strong>Persona selection</strong> &mdash; a "bug-fix" persona gets a different model, turn limit, retry budget, and cost ceiling than a "feature" or "refactor" persona</li>
+  <li><strong>Task decomposition</strong> &mdash; complex issues are broken into subtasks that can be assigned to different personas</li>
+</ul>
+
+<p>
+  The persona system is configurable per-project. A bug fix might use Sonnet with 10 max turns and a $1 cost ceiling, while a feature might use Opus with 25 turns and a $5 ceiling.
+</p>
+
+<h3>Layer 3: Agent Runtime</h3>
+
+<p>
+  The runtime layer actually executes the AI agent. It manages:
+</p>
+
+<ul>
+  <li><strong>CLAUDE.md scoping</strong> &mdash; each project gets its own instructions file that the agent reads at session start</li>
+  <li><strong>Persona overlay</strong> &mdash; additional instructions based on the selected persona</li>
+  <li><strong>MCP tool access</strong> &mdash; the agent gets access to tools via MCP (Model Context Protocol) servers, one per layer</li>
+  <li><strong>Session NDJSON parsing</strong> &mdash; the agent's output stream is parsed in real-time for monitoring</li>
+</ul>
+
+<h3>Layer 4: Quality Gates</h3>
+
+<p>
+  This is the Tier 2 checkpoint system described above, plus additional gates for cost tracking and review. Every gate can be individually bypassed when needed &mdash; the philosophy is "escape hatches, not locked gates."
+</p>
+
+<p>
+  The quality gates layer also maintains a <strong>planted-defect corpus</strong>: 13 known vulnerabilities (SQL injection, XSS, command injection, path traversal, etc.) that are used to calibrate the gate accuracy over time.
+</p>
+
+<h3>Layer 5: Observability</h3>
+
+<p>
+  Every layer emits OpenTelemetry spans. These flow to OpenObserve, where six dashboards provide visibility into:
+</p>
+
+<ul>
+  <li><strong>Loop health</strong> &mdash; span counts, latency, error rates</li>
+  <li><strong>Agent performance</strong> &mdash; turns, tokens, duration per agent session</li>
+  <li><strong>Quality gate accuracy</strong> &mdash; pass/fail rates, false positive rates</li>
+  <li><strong>DORA metrics</strong> &mdash; deployment frequency, lead time, failure rate, recovery time</li>
+  <li><strong>Cost tracking</strong> &mdash; daily token usage, cumulative monthly cost, top token-consuming runs</li>
+  <li><strong>Calibration health</strong> &mdash; regression detection across the safety pipeline</li>
+</ul>
+
+<p>
+  The observability layer also supports <strong>session replay</strong>: every event from an agent session is logged as NDJSON, so you can replay the entire decision-making process when something goes wrong.
+</p>
+
+<h3>Layer 6: Feedback Loop</h3>
+
+<p>
+  The feedback loop is what makes dev-loop a <em>loop</em>. When a task fails:
+</p>
+
+<ul>
+  <li>The system analyzes the failure reason</li>
+  <li>If it's a gate failure, it retries with feedback about what went wrong</li>
+  <li>If it's a resource limit, it escalates to a human</li>
+  <li>If it detects a pattern (e.g., repeated false positives on a specific rule), it suggests configuration changes</li>
+</ul>
+
+<p>
+  The feedback loop also handles <strong>cross-repo cascades</strong>: when a change in one project affects a downstream dependency, the system automatically creates issues in the downstream project and kicks off work there.
+</p>
+
+<p>
+  Human feedback is collected via <code>dl feedback &lt;event-id&gt; correct|false-positive|missed</code>. This feeds into a precision/recall/F1 scoring system that tracks the accuracy of each check type over time. The <code>just calibrate</code> command runs a full regression detection pipeline to make sure safety checks haven't degraded.
+</p>
+
+<h3>Layer 7: LLMOps (Feature-Flagged)</h3>
+
+<p>
+  The newest layer uses <a href="https://dspy.ai">DSPy</a> and the GEPA (Generate, Evaluate, Propose, Apply) pattern to optimize prompts using real session data. Three programs are currently optimized:
+</p>
+
+<ul>
+  <li><strong>Code Review</strong> &mdash; the LLM-as-judge that scores code changes</li>
+  <li><strong>Retry Prompt</strong> &mdash; the prompt used when retrying a failed task</li>
+  <li><strong>Persona Selection</strong> &mdash; the prompt that chooses which agent persona to assign</li>
+</ul>
+
+<p>
+  Training data is exported from real sessions: every code review, every retry, every persona selection becomes a training example. The optimizer compares optimized prompts against CLI baselines using the same evaluation set, ensuring fair comparison.
+</p>
+
+<div class="callout">
+  <div class="callout-title">Why DSPy?</div>
+  <p>DSPy treats prompts as programs with measurable metrics, not as strings to be hand-tuned. This means the optimization is reproducible, the results are auditable, and improvements compound over time. The GEPA pattern specifically avoids the common pitfall of optimizing on a different dataset than the baseline was evaluated on.</p>
+</div>
+
+<h2>The Rust Daemon</h2>
+
+<p>
+  The core of dev-loop's real-time safety is a Rust daemon (<code>dl</code>) that runs in the background. The choice of Rust is deliberate: the daemon needs to intercept every tool call with sub-5ms latency, and it needs to be a single static binary that's easy to install.
+</p>
+
+<p>Key design decisions:</p>
+
+<ul>
+  <li><strong>Unix socket communication</strong> &mdash; the daemon listens on a socket, not a TCP port, for lower latency and no network exposure</li>
+  <li><strong>Fail-open design</strong> &mdash; if the daemon is down, all tool calls proceed normally. Safety is additive, not a gate.</li>
+  <li><strong>Hot-reload config</strong> &mdash; <code>dl reload</code> picks up config changes without restarting</li>
+  <li><strong>Append-only event log</strong> &mdash; every event is logged to a JSONL file with automatic rotation</li>
+</ul>
+
+<p>
+  The binary is 6.5 MB. It handles session management, config resolution (three layers: built-in defaults, global config, per-project config), temporary overrides (<code>dl allow-once ".env" --ttl 600</code>), and live event streaming (<code>dl stream</code>).
+</p>
+
+<h2>Configuration</h2>
+
+<p>
+  dev-loop uses a three-layer configuration system:
+</p>
+
+<ol>
+  <li><strong>Built-in defaults</strong> &mdash; hardcoded in the Rust daemon (the 17 deny patterns, 25 dangerous ops patterns, 15 secret patterns)</li>
+  <li><strong>Global config</strong> &mdash; <code>~/.config/dev-loop/ambient.yaml</code> applies to all projects</li>
+  <li><strong>Per-project config</strong> &mdash; <code>.devloop.yaml</code> in the project root</li>
+</ol>
+
+<p>
+  Pattern lists are additive: you can add or remove patterns at each level. This means you can add project-specific allow-patterns (e.g., "allow <code>.env.example</code> writes") without weakening the global deny list. Both global and project configs must have <code>enabled: true</code> for checks to run.
+</p>
+
+<pre><code># .devloop.yaml — per-project config
+ambient: true
+
+deny_list:
+  remove_patterns: ["*secret*"]       # Too broad for this project
+  allow_patterns: [".env.example*"]   # Documentation templates are fine
+
+dangerous_ops:
+  allow_patterns:
+    - "rm -rf target"                 # Rust build artifacts
+    - "rm -rf node_modules"           # Node modules
+
+secrets:
+  file_allowlist:
+    - "daemon/src/check/secrets.rs"   # Test patterns in source</code></pre>
+
+<h2>Tracer Bullets</h2>
+
+<p>
+  dev-loop is built using a <strong>tracer bullet</strong> methodology. Instead of building layers horizontally (finish all of layer 1, then all of layer 2), every feature is implemented as a thin vertical slice that cuts through all seven layers. This ensures every layer works together from day one.
+</p>
+
+<p>
+  Seven tracer bullets validate every critical workflow:
+</p>
+
+<ol>
+  <li><strong>TB-1: Issue-to-PR</strong> &mdash; the golden path. Take an issue, assign it to an agent, agent writes code, gates pass, PR created.</li>
+  <li><strong>TB-2: Failure-to-Retry</strong> &mdash; proves the loop actually loops. A task fails a gate, the system retries with feedback, the retry succeeds.</li>
+  <li><strong>TB-3: Security Gate</strong> &mdash; proves security scanning works in-loop. A planted vulnerability is caught by Semgrep, the agent auto-remediates.</li>
+  <li><strong>TB-4: Runaway-to-Stop</strong> &mdash; proves resource control works. An agent exceeds its turn limit, gets stopped, usage is visible in dashboards.</li>
+  <li><strong>TB-5: Cross-Repo Cascade</strong> &mdash; proves multi-project support. A change in one repo triggers downstream work in another.</li>
+  <li><strong>TB-6: Session Replay</strong> &mdash; proves observability works. A 70-event session is replayed from NDJSON for debugging.</li>
+  <li><strong>TB-7: LLMOps A/B</strong> &mdash; proves optimization works. DSPy-optimized prompts are compared against CLI baselines.</li>
+</ol>
+
+<p>
+  Each tracer bullet has a single <code>just tb&lt;N&gt;</code> command. All seven are currently passing. A nightly <code>just calibrate</code> run ensures they stay that way.
+</p>
+
+<h2>Calibration and Feedback Scoring</h2>
+
+<p>
+  dev-loop doesn't just run safety checks &mdash; it measures how well those checks are working. The calibration system has several components:
+</p>
+
+<ul>
+  <li><strong>Conformance tests</strong> &mdash; 106 test cases (82 pre-tool-use, 24 post-tool-use) that verify the check engine produces the correct verdict for known inputs</li>
+  <li><strong>Planted-defect corpus</strong> &mdash; 13 real vulnerabilities that the gates must catch (CWE-89 SQL injection, CWE-79 XSS, etc.)</li>
+  <li><strong>Feedback scoring</strong> &mdash; human labels (correct, false-positive, missed) are aggregated into precision/recall/F1 per check type</li>
+  <li><strong>Baseline comparison</strong> &mdash; current metrics are compared against a saved baseline, and regressions are flagged</li>
+  <li><strong>History tracking</strong> &mdash; metrics are appended to a JSONL history file so you can see trends over time</li>
+</ul>
+
+<p>
+  The <code>just calibrate</code> command runs the full pipeline: conformance tests, planted-defect verification, feedback scoring, baseline comparison, and regression detection. It produces a dated report and exits with an error if anything has degraded.
+</p>
+
+<h2>What's Next</h2>
+
+<p>
+  dev-loop is a working system &mdash; all seven layers are functional, all seven tracer bullets pass, and the safety harness runs in production on real codebases. But there's always more to do:
+</p>
+
+<ul>
+  <li><strong>Context compression</strong> &mdash; intelligent context management for long agent sessions</li>
+  <li><strong>Partial success handling</strong> &mdash; detecting and recovering from tasks that partially succeed</li>
+  <li><strong>Onboarding automation</strong> &mdash; <code>just onboard &lt;repo&gt;</code> to add dev-loop to a new project</li>
+  <li><strong>More training data</strong> &mdash; retry_prompt and persona_select need more session examples before optimization is meaningful</li>
+</ul>
+
+<p>
+  The project is 100% open source under the MIT license. The entire tool stack is free (beyond your Anthropic API key). If you're running AI coding agents and want a safety net that learns from its own mistakes, <a href="https://github.com/musicofhel/dev-loop">check out the repo</a>.
+</p>
+
+</article>
+
+<!-- Footer -->
+<footer class="footer">
+  <span>dev-loop &mdash; MIT License</span>
+  <span>
+    <a href="https://github.com/musicofhel/dev-loop">GitHub</a>
+    &middot;
+    <a href="../">Home</a>
+  </span>
+</footer>
+
+</body>
+</html>

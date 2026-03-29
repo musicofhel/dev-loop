@@ -54,7 +54,7 @@ Three tiers of protection, from instant to thorough:
 
 Three check modules run on every Write, Edit, or Bash call the agent makes:
 
-- **Deny List** — 15 patterns block writes to sensitive files (`.env`, `.ssh/*`, `*.key`, etc.)
+- **Deny List** — 17 patterns block writes to sensitive files (`.env`, `.ssh/*`, `*.key`, etc.)
 - **Dangerous Ops** — 25 patterns warn or block risky commands (`rm -rf`, `curl | sh`, `git push --force`, etc.)
 - **Secret Scanner** — 15 patterns catch API keys, private keys, and database strings in file content.
 
@@ -223,9 +223,11 @@ Once running, dev-loop silently protects every Claude Code session. No changes t
 | Tier 1 latency | < 5ms |
 | Hook latency | ~6ms (incl. process startup) |
 | Binary size | 6.5 MB |
-| **Total tests** | **967** |
-| Python tests | 678 |
+| **Total tests** | **978** |
+| Python tests | 689 |
 | Rust tests | 289 |
+| Conformance tests | 106 |
+| Tracer bullets | 7/7 passing |
 
 ## Agents
 
@@ -247,6 +249,7 @@ Claude Code agents that ship with dev-loop (`.claude/agents/`):
 | [Test Repos](docs/test-repos.md) | Validation targets and pass criteria |
 | [Network Requirements](docs/network-requirements.md) | External APIs, ports, degradation behavior |
 | [Ambient Layer Plan](docs/ambient-layer-plan.md) | Full daemon design spec (~900 lines) |
+| [Layer Docs](docs/layers/) | Per-layer design intent (7 docs, ~1000 lines) |
 | [ADRs](docs/adrs/) | Architecture decision records |
 
 ## License

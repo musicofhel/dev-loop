@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dev-loop — Safety harness for AI coding agents</title>
+  <meta name="description" content="A safety harness for AI coding agents. Watches every action, blocks dangerous ones in real-time, runs quality checks before code ships.">
+  <meta property="og:title" content="dev-loop — Safety harness for AI coding agents">
+  <meta property="og:description" content="Real-time safety, commit-time gates, and closed-loop optimization for AI-assisted development.">
+  <meta property="og:type" content="website">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">dev<span>-loop</span></a>
+    <ul class="nav-links">
+      <li><a href="#how-it-works">How It Works</a></li>
+      <li><a href="#safety">Safety Model</a></li>
+      <li><a href="#layers">Architecture</a></li>
+      <li><a href="blog/how-it-works.html">Blog</a></li>
+      <li><a href="https://github.com/musicofhel/dev-loop">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <h1>A safety harness for<br><span class="highlight">AI coding agents</span></h1>
+  <p class="subtitle">
+    Watches every action your AI takes, blocks dangerous ones in real-time, and runs quality checks before code ships. 100% open source.
+  </p>
+  <div class="hero-actions">
+    <a href="https://github.com/musicofhel/dev-loop" class="btn btn-primary">
+      View on GitHub
+    </a>
+    <a href="blog/how-it-works.html" class="btn btn-outline">
+      Read the deep dive
+    </a>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-bar">
+  <div class="stat">
+    <div class="stat-value">&lt; 5ms</div>
+    <div class="stat-label">Tier 1 latency</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">978</div>
+    <div class="stat-label">Total tests</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">7/7</div>
+    <div class="stat-label">Tracer bullets passing</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">106</div>
+    <div class="stat-label">Conformance tests</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">6.5 MB</div>
+    <div class="stat-label">Binary size</div>
+  </div>
+</div>
+
+<!-- How it works -->
+<section id="how-it-works">
+  <h2>How It Works</h2>
+  <p>
+    AI coding agents are fast &mdash; but they can delete your <code>.env</code>, leak API keys, run <code>rm -rf /</code>, or push broken code. The faster they work, the more damage they can do before you notice.
+  </p>
+  <p>
+    dev-loop sits between the AI agent and your codebase. It intercepts every action, checks it against safety rules, and blocks anything dangerous &mdash; all before the action executes.
+  </p>
+
+  <h3>Three Tiers of Protection</h3>
+  <div class="tiers">
+    <div class="tier-card tier-1">
+      <div class="tier-label">Tier 1 &mdash; Real-time</div>
+      <h3>&lt; 5ms per check</h3>
+      <p>Every file write, edit, or shell command is checked against deny lists, dangerous patterns, and secret detectors before it executes.</p>
+    </div>
+    <div class="tier-card tier-2">
+      <div class="tier-label">Tier 2 &mdash; Commit-time</div>
+      <h3>~30 seconds</h3>
+      <p>Tests, security scanning (Semgrep), secret detection, and spec enforcement run in sequence before each commit goes through.</p>
+    </div>
+    <div class="tier-card tier-3">
+      <div class="tier-label">Tier 3 &mdash; Full pipeline</div>
+      <h3>On demand</h3>
+      <p>Take a bug report, assign it to an agent, agent writes code, quality gates run, retry on failure, PR created. The full closed loop.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Safety -->
+<section id="safety">
+  <h2>What Gets Blocked</h2>
+  <table class="layer-table">
+    <thead>
+      <tr>
+        <th>The AI tries to...</th>
+        <th>What happens</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Write to <code>.env</code> or <code>.ssh/config</code></td>
+        <td>Blocked before the write executes (&lt; 5ms)</td>
+      </tr>
+      <tr>
+        <td>Run <code>rm -rf /</code> or <code>curl ... | sh</code></td>
+        <td>Blocked before the command executes (&lt; 5ms)</td>
+      </tr>
+      <tr>
+        <td>Force-push to main</td>
+        <td>Blocked before the push executes (&lt; 5ms)</td>
+      </tr>
+      <tr>
+        <td>Commit code containing an API key</td>
+        <td>Blocked at commit time (~30s)</td>
+      </tr>
+      <tr>
+        <td>Commit code with a known vulnerability</td>
+        <td>Blocked at commit time (Semgrep scan)</td>
+      </tr>
+      <tr>
+        <td>Commit code that fails tests</td>
+        <td>Blocked at commit time (auto-detected test runner)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Check Engine</h3>
+  <div class="features">
+    <div class="feature">
+      <h4>Deny List &mdash; 17 patterns</h4>
+      <p>Blocks writes to sensitive files: <code>.env</code>, <code>.ssh/*</code>, <code>*.key</code>, <code>*.pem</code>, credentials, keystores.</p>
+    </div>
+    <div class="feature">
+      <h4>Dangerous Ops &mdash; 25 patterns</h4>
+      <p>Catches risky commands: <code>rm -rf</code>, force push, <code>DROP TABLE</code>, <code>curl | sh</code>, <code>chmod 777</code>, <code>sudo rm</code>.</p>
+    </div>
+    <div class="feature">
+      <h4>Secret Scanner &mdash; 15 patterns</h4>
+      <p>Detects API keys, tokens, private keys, database connection strings, and high-entropy secrets in file content.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section id="layers">
+  <h2>Seven-Layer Architecture</h2>
+  <p>
+    Seven layers form a closed loop &mdash; the output of every stage feeds back as input. There is no "end", only cycles that get tighter as the harness learns.
+  </p>
+  <table class="layer-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Layer</th>
+        <th>What it does</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="layer-num">1</td>
+        <td><strong>Intake</strong></td>
+        <td>Pulls issues from the tracker (beads), resolves dependencies, assigns priority</td>
+      </tr>
+      <tr>
+        <td class="layer-num">2</td>
+        <td><strong>Orchestration</strong></td>
+        <td>Creates isolated git worktrees, selects agent personas, decomposes tasks</td>
+      </tr>
+      <tr>
+        <td class="layer-num">3</td>
+        <td><strong>Agent Runtime</strong></td>
+        <td>Runs the AI agent with scoped permissions, CLAUDE.md overlays, MCP tool access</td>
+      </tr>
+      <tr>
+        <td class="layer-num">4</td>
+        <td><strong>Quality Gates</strong></td>
+        <td>Tests, Semgrep security scans, secret detection, spec enforcement, cost limits</td>
+      </tr>
+      <tr>
+        <td class="layer-num">5</td>
+        <td><strong>Observability</strong></td>
+        <td>OpenTelemetry spans, OpenObserve dashboards, NDJSON session replay</td>
+      </tr>
+      <tr>
+        <td class="layer-num">6</td>
+        <td><strong>Feedback Loop</strong></td>
+        <td>Retries failures, escalates to humans, detects patterns, triggers cross-repo cascades</td>
+      </tr>
+      <tr>
+        <td class="layer-num">7</td>
+        <td><strong>LLMOps</strong></td>
+        <td>DSPy/GEPA prompt optimization using real session data (feature-flagged)</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Quick start -->
+<section id="quickstart">
+  <h2>Quick Start</h2>
+  <pre><code># Build and install the daemon
+cd daemon && cargo build --release
+cp target/release/dl ~/.local/bin/dl
+
+# Hook into Claude Code
+dl install
+
+# Start the daemon
+dl start
+
+# Check status
+dl status</code></pre>
+  <p>
+    Once running, dev-loop silently protects every Claude Code session. No changes to your workflow needed.
+  </p>
+</section>
+
+<!-- Tracer bullets -->
+<section id="tracer-bullets">
+  <h2>Tracer Bullets</h2>
+  <p>
+    Seven end-to-end test paths validate every critical workflow. Each cuts vertically through all 7 layers.
+  </p>
+  <table class="layer-table">
+    <thead>
+      <tr>
+        <th>TB</th>
+        <th>Name</th>
+        <th>What it proves</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="layer-num">1</td>
+        <td><strong>Issue-to-PR</strong></td>
+        <td>Golden path &mdash; entire loop works end-to-end</td>
+      </tr>
+      <tr>
+        <td class="layer-num">2</td>
+        <td><strong>Failure-to-Retry</strong></td>
+        <td>Feedback loop &mdash; failures actually self-correct</td>
+      </tr>
+      <tr>
+        <td class="layer-num">3</td>
+        <td><strong>Security Gate</strong></td>
+        <td>Safety &mdash; vulnerabilities caught and auto-remediated</td>
+      </tr>
+      <tr>
+        <td class="layer-num">4</td>
+        <td><strong>Runaway-to-Stop</strong></td>
+        <td>Resource control &mdash; runaway agents stopped, usage visible</td>
+      </tr>
+      <tr>
+        <td class="layer-num">5</td>
+        <td><strong>Cross-Repo Cascade</strong></td>
+        <td>Multi-project &mdash; changes trigger downstream work</td>
+      </tr>
+      <tr>
+        <td class="layer-num">6</td>
+        <td><strong>Session Replay</strong></td>
+        <td>Observability &mdash; full decision replay when things fail</td>
+      </tr>
+      <tr>
+        <td class="layer-num">7</td>
+        <td><strong>LLMOps A/B</strong></td>
+        <td>Optimization &mdash; DSPy-optimized prompts vs baseline comparison</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <span>dev-loop &mdash; MIT License</span>
+  <span>
+    <a href="https://github.com/musicofhel/dev-loop">GitHub</a>
+    &middot;
+    <a href="blog/how-it-works.html">Blog</a>
+  </span>
+</footer>
+
+</body>
+</html>
