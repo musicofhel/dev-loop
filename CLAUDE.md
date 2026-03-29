@@ -10,7 +10,7 @@ Developer tooling harness. Not an app. Not a library. A composition of tools wir
 
 ## Architecture
 - Seven layers (see docs/layers/*.md for intent): intake → orchestration → runtime → quality gates → observability → feedback loop → llmops
-- Layer 7 (LLMOps): DSPy/GEPA prompt optimization. Feature-flagged via `config/llmops.yaml` (`enabled: false` default). See `docs/layers/07-llmops.md`.
+- Layer 7 (LLMOps): DSPy/GEPA prompt optimization. Feature-flagged via `config/llmops.yaml` (`enabled: true`). See `docs/layers/07-llmops.md`.
 - MCP servers are the integration boundary between layers
 - OpenTelemetry is the instrumentation standard — every layer emits spans
 - Every tool must be individually bypassable (escape hatches, not locked gates)

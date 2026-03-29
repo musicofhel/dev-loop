@@ -68,11 +68,11 @@ Controlled by `config/llmops.yaml`:
 
 ```yaml
 llmops:
-  enabled: false  # flip after first successful GEPA optimization
+  enabled: true  # flipped after first successful GEPA optimization (2026-03-28)
 ```
 
 - `enabled: false` — Gate 4 uses existing CLI path (`claude --print`). Zero behavior change.
-- `enabled: true` — Gate 4 uses DSPy path via Anthropic API. Falls back to CLI on any failure.
+- `enabled: true` (current) — Gate 4 uses DSPy path via Anthropic API. Falls back to CLI on any failure.
 
 Both paths produce the same `Finding` objects and feed into the same severity pass/fail logic.
 

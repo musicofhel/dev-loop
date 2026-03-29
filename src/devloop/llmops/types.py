@@ -62,7 +62,7 @@ class OptimizationRun(BaseModel):
 class OptimizationConfig(BaseModel):
     """Per-program optimization hyperparameters from config/llmops.yaml."""
 
-    model: str = "claude-sonnet-4-6"
+    model: str = "claude-opus-4-6"
     max_bootstrapped_demos: int = 4
     max_labeled_demos: int = 8
     num_trials: int = 20

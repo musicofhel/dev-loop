@@ -13,10 +13,10 @@ dev-loop sits between the AI agent and your codebase. It intercepts every action
 ## How It Works
 
 <picture>
-  <img alt="System Overview — 6-layer closed loop" src="docs/diagrams/system-overview.svg" width="400">
+  <img alt="System Overview — 7-layer closed loop" src="docs/diagrams/system-overview.svg" width="400">
 </picture>
 
-Six layers form a closed loop — the output of every stage feeds back as input. There is no "end", only cycles that get tighter as the harness learns.
+Seven layers form a closed loop — the output of every stage feeds back as input. There is no "end", only cycles that get tighter as the harness learns.
 
 | # | Layer | What it does |
 |---|-------|-------------|
@@ -26,6 +26,7 @@ Six layers form a closed loop — the output of every stage feeds back as input.
 | 4 | **Quality Gates** | Scans for secrets, vulnerabilities, and test failures |
 | 5 | **Observability** | Records everything for debugging and dashboards |
 | 6 | **Feedback Loop** | Retries failures, escalates to a human if stuck |
+| 7 | **LLMOps** | Optimizes prompts via DSPy/GEPA using real session data |
 
 Three tiers of protection, from instant to thorough:
 
@@ -43,7 +44,7 @@ Three tiers of protection, from instant to thorough:
 |------|-------------|---------|---------------|
 | **Tier 1** | Every tool call | < 5ms | Blocked files, dangerous commands, leaked secrets |
 | **Tier 2** | On `git commit` | ~30s | Security scanner, secret scanner, test runner, spec enforcement |
-| **Tier 3** | On demand | ~minutes | Full 6-layer pipeline end-to-end |
+| **Tier 3** | On demand | ~minutes | Full 7-layer pipeline end-to-end |
 
 ### Tier 1: Check Engine
 
@@ -152,7 +153,7 @@ Sessions are tracked from start to end:
 
 `just calibrate` runs a 5-stage regression detection pipeline to make sure safety checks haven't degraded. It produces a dated report at `docs/calibration/YYYY-MM-DD.md` and exits with an error if it detects a regression.
 
-Six end-to-end test paths ("tracer bullets") validate every critical workflow — from the happy path through security catches, retries, cross-repo cascades, and session replay. See [Tracer Bullets](docs/tracer-bullets.md) for details.
+Seven end-to-end test paths ("tracer bullets") validate every critical workflow — from the happy path through security catches, retries, cross-repo cascades, session replay, and LLMOps A/B comparison. See [Tracer Bullets](docs/tracer-bullets.md) for details.
 
 ## Quick Start
 
@@ -222,13 +223,9 @@ Once running, dev-loop silently protects every Claude Code session. No changes t
 | Tier 1 latency | < 5ms |
 | Hook latency | ~6ms (incl. process startup) |
 | Binary size | 6.5 MB |
-| **Total tests** | **764** |
-| Python tests | 386 |
-| Rust tests | 195 |
-| Conformance tests | 106 |
-| Tier 2 tests | 31 |
-| Feedback tests | 27 |
-| Replay tests | 19 |
+| **Total tests** | **967** |
+| Python tests | 678 |
+| Rust tests | 289 |
 
 ## Agents
 
@@ -243,7 +240,7 @@ Claude Code agents that ship with dev-loop (`.claude/agents/`):
 | Doc | What it covers |
 |-----|---------------|
 | [Architecture](docs/architecture.md) | System diagram, data flow, multi-project model |
-| [Tracer Bullets](docs/tracer-bullets.md) | All 6 end-to-end test paths with entry/exit criteria |
+| [Tracer Bullets](docs/tracer-bullets.md) | All 7 end-to-end test paths with entry/exit criteria |
 | [Edge Cases — Pass 1](docs/edge-cases.md) | 25 failure modes: races, crashes, security |
 | [Edge Cases — Pass 2](docs/edge-cases-pass2.md) | 16 design gaps: context scaling, backpressure |
 | [Scoring Rubric](docs/scoring-rubric.md) | 7-dimension tool evaluation matrix |
