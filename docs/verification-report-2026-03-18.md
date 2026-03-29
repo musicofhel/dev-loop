@@ -1,3 +1,5 @@
+> Note: omniswipe-backend was the secondary test target during this period. It has since been replaced by OOTestProject1.
+
 # Verification Report — 2026-03-18
 
 **Generated**: 2026-03-18T19:38:00-04:00

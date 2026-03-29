@@ -226,10 +226,10 @@ class TestTB1CascadeIntegration:
 
     def test_cascade_triggered_after_pr(self, tb1_mocks):
         tb1_mocks.find_cascade_targets.return_value = [{
-            "target_repo_name": "omniswipe-backend",
-            "target_repo_path": "/home/user/omniswipe-backend",
-            "matched_watches": ["src/api/**"],
-            "dependency_type": "api-contract",
+            "target_repo_name": "prompt-bench",
+            "target_repo_path": "/home/user/prompt-bench",
+            "matched_watches": ["src/oo_test_project/db/**"],
+            "dependency_type": "data-model",
         }]
         tb1_mocks.run_tb5.return_value = {"success": True, "cascade_skipped": False}
 

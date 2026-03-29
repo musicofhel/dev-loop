@@ -24,7 +24,7 @@ Developer tooling harness. Not an app. Not a library. A composition of tools wir
 - `br ready` = what's ready to work on, `br graph` = dependency visualization
 
 ## Testing
-- Test against real repos (prompt-bench, omniswipe-backend, enterprise-pipeline)
+- Test against real repos (prompt-bench, OOTestProject1)
 - No synthetic benchmarks until real-repo tracer bullets pass
 - Scoring rubric at docs/scoring-rubric.md — every tool gets evaluated
 

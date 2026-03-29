@@ -3,25 +3,9 @@
 
 repo_paths:
   prompt-bench: /home/musicofhel/prompt-bench
-  omniswipe-backend: /home/musicofhel/omniswipe-backend
-  omniswipe-mobile: /home/musicofhel/omniswipe-mobile
   OOTestProject1: /home/musicofhel/OOTestProject1
 
 dependencies:
-  - source: prompt-bench
-    target: omniswipe-backend
-    watches:
-      - "src/api/**"
-      - "src/types/**"
-    type: api-contract
-
-  - source: omniswipe-backend
-    target: omniswipe-mobile
-    watches:
-      - "src/routes/**"
-      - "prisma/schema.prisma"
-    type: api-contract
-
   - source: OOTestProject1
     target: prompt-bench
     watches:

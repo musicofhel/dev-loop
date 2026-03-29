@@ -46,7 +46,7 @@
         "count": 2
       },
       {
-        "file": "/home/musicofhel/omniswipe-backend/.env",
+        "file": "/home/musicofhel/OOTestProject1/.env",
         "count": 2
       },
       {
@@ -86,7 +86,7 @@
         "count": 2
       },
       {
-        "file": "/home/musicofhel/enterprise-pipeline/.env.example",
+        "file": "/home/musicofhel/OOTestProject1/.env.example",
         "count": 2
       },
       {
@@ -234,7 +234,7 @@
         "count": 2
       },
       {
-        "reason": "Blocked: write to '/home/musicofhel/omniswipe-backend/.env' matches deny pattern '.env'",
+        "reason": "Blocked: write to '/home/musicofhel/OOTestProject1/.env' matches deny pattern '.env'",
         "count": 2
       },
       {
@@ -254,7 +254,7 @@
         "count": 2
       },
       {
-        "reason": "Blocked: write to '/home/musicofhel/enterprise-pipeline/.env.example' matches deny pattern '.env.*'",
+        "reason": "Blocked: write to '/home/musicofhel/OOTestProject1/.env.example' matches deny pattern '.env.*'",
         "count": 2
       },
       {
@@ -324,13 +324,13 @@
         "check_type": "deny_list"
       },
       {
-        "file": "/home/musicofhel/enterprise-pipeline/.env.example",
-        "reason": "Blocked: write to '/home/musicofhel/enterprise-pipeline/.env.example' matches deny pattern '.env.*'",
+        "file": "/home/musicofhel/OOTestProject1/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/OOTestProject1/.env.example' matches deny pattern '.env.*'",
         "check_type": "deny_list"
       },
       {
-        "file": "/home/musicofhel/enterprise-pipeline/.env.example",
-        "reason": "Blocked: write to '/home/musicofhel/enterprise-pipeline/.env.example' matches deny pattern '.env.*'",
+        "file": "/home/musicofhel/OOTestProject1/.env.example",
+        "reason": "Blocked: write to '/home/musicofhel/OOTestProject1/.env.example' matches deny pattern '.env.*'",
         "check_type": "deny_list"
       }
     ],

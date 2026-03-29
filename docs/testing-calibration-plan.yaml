@@ -551,7 +551,7 @@ tool_wishlist:
       updates, and can push changes. Like fleet management for ambient configs.
       `dl config-sync --registry ~/dev-loop/config/repo-templates/`
     value: >
-      With 3+ repos (dev-loop, prompt-bench, omniswipe-backend), each with
+      With 3+ repos (dev-loop, prompt-bench, OOTestProject1), each with
       its own .devloop.yaml, keeping patterns consistent is manual. A sync
       tool ensures all repos get new patterns when the global config evolves.
     implementation: "Rust subcommand, ~200 lines. Diff per-repo vs template, report drift."

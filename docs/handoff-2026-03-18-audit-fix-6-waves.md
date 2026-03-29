@@ -1,3 +1,5 @@
+> Note: omniswipe-backend was the secondary test target during this period. It has since been replaced by OOTestProject1.
+
 # Handoff: 6-Wave Audit Fix — 2026-03-18
 
 ## Session Summary

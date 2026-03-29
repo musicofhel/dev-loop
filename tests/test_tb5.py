@@ -274,9 +274,9 @@ class TestCreateCascadeIssue:
         result = _create_cascade_issue(
             source_issue_id="dl-src",
             source_title="Update API",
-            target_repo_name="omniswipe-backend",
-            matched_watches=["src/api/**"],
-            dependency_type="api-contract",
+            target_repo_name="prompt-bench",
+            matched_watches=["src/oo_test_project/db/**"],
+            dependency_type="data-model",
         )
         assert result == "dl-cascade-1"
 
@@ -291,7 +291,7 @@ class TestCreateCascadeIssue:
         assert "--labels" in args
         labels_idx = args.index("--labels")
         assert "cascade" in args[labels_idx + 1]
-        assert "repo:omniswipe-backend" in args[labels_idx + 1]
+        assert "repo:prompt-bench" in args[labels_idx + 1]
         assert "--silent" in args
 
     @patch("devloop.feedback.pipeline.subprocess.run")
@@ -534,18 +534,18 @@ class TestFindCascadeTargets:
         """Returns targets when changed files match watch patterns."""
         from devloop.feedback.tb5_cascade import find_cascade_targets
 
-        mock_changed.return_value = ["src/api/routes.py"]
+        mock_changed.return_value = ["src/oo_test_project/db/users.py"]
         mock_deps.return_value = [
-            {"source": "prompt-bench", "target": "omniswipe-backend",
-             "watches": ["src/api/**"], "type": "api-contract"},
+            {"source": "OOTestProject1", "target": "prompt-bench",
+             "watches": ["src/oo_test_project/db/**"], "type": "data-model"},
         ]
-        mock_resolve.return_value = "/home/user/omniswipe-backend"
+        mock_resolve.return_value = "/home/user/prompt-bench"
 
-        targets = find_cascade_targets("/home/user/prompt-bench", "dl-test")
+        targets = find_cascade_targets("/home/user/OOTestProject1", "dl-test")
         assert len(targets) == 1
-        assert targets[0]["target_repo_name"] == "omniswipe-backend"
-        assert targets[0]["target_repo_path"] == "/home/user/omniswipe-backend"
-        assert targets[0]["matched_watches"] == ["src/api/**"]
+        assert targets[0]["target_repo_name"] == "prompt-bench"
+        assert targets[0]["target_repo_path"] == "/home/user/prompt-bench"
+        assert targets[0]["matched_watches"] == ["src/oo_test_project/db/**"]
 
     @patch("devloop.feedback.tb5_cascade._get_changed_files")
     def test_no_changed_files_returns_empty(self, mock_changed):
@@ -553,7 +553,7 @@ class TestFindCascadeTargets:
         from devloop.feedback.tb5_cascade import find_cascade_targets
 
         mock_changed.return_value = []
-        assert find_cascade_targets("/home/user/prompt-bench", "dl-test") == []
+        assert find_cascade_targets("/home/user/OOTestProject1", "dl-test") == []
 
     @patch("devloop.feedback.tb5_cascade._resolve_repo_path")
     @patch("devloop.feedback.tb5_cascade._load_dependency_map")
@@ -564,10 +564,10 @@ class TestFindCascadeTargets:
 
         mock_changed.return_value = ["docs/README.md"]
         mock_deps.return_value = [
-            {"source": "prompt-bench", "target": "omniswipe-backend",
-             "watches": ["src/api/**"], "type": "api-contract"},
+            {"source": "OOTestProject1", "target": "prompt-bench",
+             "watches": ["src/oo_test_project/db/**"], "type": "data-model"},
         ]
-        assert find_cascade_targets("/home/user/prompt-bench", "dl-test") == []
+        assert find_cascade_targets("/home/user/OOTestProject1", "dl-test") == []
 
     @patch("devloop.feedback.tb5_cascade._resolve_repo_path")
     @patch("devloop.feedback.tb5_cascade._load_dependency_map")
@@ -576,14 +576,14 @@ class TestFindCascadeTargets:
         """Skips target when repo_path can't be resolved."""
         from devloop.feedback.tb5_cascade import find_cascade_targets
 
-        mock_changed.return_value = ["src/api/routes.py"]
+        mock_changed.return_value = ["src/oo_test_project/db/users.py"]
         mock_deps.return_value = [
-            {"source": "prompt-bench", "target": "omniswipe-backend",
-             "watches": ["src/api/**"], "type": "api-contract"},
+            {"source": "OOTestProject1", "target": "prompt-bench",
+             "watches": ["src/oo_test_project/db/**"], "type": "data-model"},
         ]
         mock_resolve.return_value = None  # path not configured
 
-        assert find_cascade_targets("/home/user/prompt-bench", "dl-test") == []
+        assert find_cascade_targets("/home/user/OOTestProject1", "dl-test") == []
 
     @patch("devloop.feedback.tb5_cascade._get_changed_files")
     def test_git_diff_failure_returns_empty(self, mock_changed):
@@ -591,4 +591,4 @@ class TestFindCascadeTargets:
         from devloop.feedback.tb5_cascade import find_cascade_targets
 
         mock_changed.side_effect = RuntimeError("git diff failed")
-        assert find_cascade_targets("/home/user/prompt-bench", "dl-test") == []
+        assert find_cascade_targets("/home/user/OOTestProject1", "dl-test") == []

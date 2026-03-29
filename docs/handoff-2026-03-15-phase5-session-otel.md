@@ -1,3 +1,5 @@
+> Note: omniswipe-backend was the secondary test target during this period. It has since been replaced by OOTestProject1.
+
 # Handoff: Phase 5 — Session Registration + OTel
 
 **Date**: 2026-03-15

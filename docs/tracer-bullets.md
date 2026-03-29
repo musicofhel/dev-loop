@@ -195,7 +195,7 @@ just tb4-turns <issue_id> <repo_path> 5      # override turn limit
 ```bash
 just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
 # Example:
-just tb5 dl-abc ~/prompt-bench ~/omniswipe-backend
+just tb5 dl-abc ~/OOTestProject1 ~/prompt-bench
 ```
 
 ### Status: PASSING (2026-03-28)

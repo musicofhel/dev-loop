@@ -1,3 +1,5 @@
+> Note: omniswipe-backend was the secondary test target during this period. It has since been replaced by OOTestProject1.
+
 # Handoff: Completion Pass — All Deferred Items Done
 
 **Date**: 2026-03-16

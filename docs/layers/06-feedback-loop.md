@@ -85,19 +85,11 @@ Dependency map (manual for now):
 ```yaml
 # config/dependencies.yaml
 dependencies:
-  - source: prompt-bench
-    target: omniswipe-backend
+  - source: OOTestProject1
+    target: prompt-bench
     watches:
-      - "src/api/**"
-      - "src/types/**"
-    type: api-contract
-
-  - source: omniswipe-backend
-    target: omniswipe-mobile
-    watches:
-      - "src/routes/**"
-      - "prisma/schema.prisma"
-    type: api-contract
+      - "src/oo_test_project/db/**"
+    type: data-model
 ```
 
 ### Channel 5: Changelog Generation (Automatic) -- NOT IMPLEMENTED
@@ -152,6 +144,6 @@ parent: trace root
 ```
 
 ### Open Questions
-- [ ] Retry prompt: should we include the full gate output or a summary? (Currently: last 2 attempts detailed, older summarized with count)
-- [ ] Cascade: how to detect breaking vs non-breaking changes? (start with "all changes cascade")
-- [ ] How does the human "approve" a harness tuning suggestion? (PR to dev-loop repo?)
+- [x] Retry prompt: should we include the full gate output or a summary? (Resolved: implemented as "last 2 detailed, older summarized" in `build_retry_prompt()`.)
+- [x] Cascade: how to detect breaking vs non-breaking changes? (Resolved: started with "all changes cascade" as documented. TB-5 validates.)
+- [ ] How does the human "approve" a harness tuning suggestion? (Status: deferred, not blocking any active TB)

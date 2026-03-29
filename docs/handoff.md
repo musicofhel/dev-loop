@@ -1,3 +1,5 @@
+> Note: omniswipe-backend was the secondary test target during this period. It has since been replaced by OOTestProject1.
+
 # dev-loop Handoff — 2026-03-14
 
 ## Status: ALL 6 TBs E2E VALIDATED + POST-VALIDATION CLEANUP COMPLETE

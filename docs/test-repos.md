@@ -18,39 +18,25 @@ These are the real repos we validate the harness against. No synthetic benchmark
 - **TB-3 issue**: "Add user input directly to SQL query" (intentional vulnerability)
 - **TB-4 issue**: "Refactor the entire test suite" (intentionally large scope)
 
-## Secondary Test Repo: omniswipe-backend
+## Secondary Test Repo: OOTestProject1
 
 | Field | Value |
 |-------|-------|
-| Path | ~/omniswipe-backend |
-| Language | TypeScript (Fastify + Prisma 7) |
-| Purpose | Production API backend |
-| Why it's good for testing | Real complexity, real tests, real DB |
-| TB coverage | TB-5 (as downstream target for cross-repo cascade) |
-
-### Test Issues
-- **TB-5 downstream**: Auto-created when prompt-bench API changes
-
-## Tertiary Test Repo: enterprise-pipeline
-
-| Field | Value |
-|-------|-------|
-| Path | ~/enterprise-pipeline |
-| Language | Python (FastAPI + Qdrant) |
-| Purpose | Production RAG pipeline |
-| Why it's good for testing | Different language, validates cross-language support |
-| TB coverage | TB-5 (as additional downstream target) |
+| Path | ~/OOTestProject1 |
+| Language | Python |
+| Purpose | Controlled test environment for cross-repo and cascade validation |
+| TB coverage | TB-1 through TB-6 (TB-4/5/6 already validated), TB-5 SOURCE |
 
 ## Validation Matrix
 
-| Tracer Bullet | prompt-bench | omniswipe-backend | enterprise-pipeline |
-|---------------|-------------|-------------------|---------------------|
-| TB-1 | PRIMARY | - | - |
-| TB-2 | PRIMARY | - | - |
-| TB-3 | PRIMARY | - | - |
-| TB-4 | PRIMARY | - | - |
-| TB-5 | SOURCE | TARGET | TARGET |
-| TB-6 | PRIMARY | - | - |
+| Tracer Bullet | prompt-bench | OOTestProject1 |
+|---------------|-------------|----------------|
+| TB-1 | PRIMARY | - |
+| TB-2 | PRIMARY | - |
+| TB-3 | PRIMARY | - |
+| TB-4 | PRIMARY | - |
+| TB-5 | TARGET | SOURCE |
+| TB-6 | PRIMARY | - |
 
 ## What "Pass" Means Per Repo
 
@@ -60,16 +46,10 @@ These are the real repos we validate the harness against. No synthetic benchmark
 - PR is clean (no unnecessary file changes, proper commit messages)
 - Full trace visible in OpenObserve
 
-### omniswipe-backend
-- Agent respects Prisma 7 patterns (generated client import path)
-- Agent doesn't break existing Maestro E2E tests
-- Agent handles TypeScript strict mode (zero tsc errors post-change)
-- Cross-repo issue correctly references the upstream change
-
-### enterprise-pipeline
-- Agent handles Python project structure (FastAPI, pytest)
-- Agent doesn't break deployment configs
-- Agent produces valid Python (passes mypy if configured)
+### OOTestProject1
+- Agent handles Python project structure (Python/pytest patterns)
+- Cross-repo cascade correctly detects changed files and creates downstream issues
+- Agent produces valid Python (tests pass after changes)
 
 ## Adding a Test Repo
 

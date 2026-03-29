@@ -23,7 +23,7 @@ from pathlib import Path
 
 REPO = Path(__file__).parent.parent
 PROMPT_BENCH = Path.home() / "prompt-bench"
-OMNISWIPE_BACKEND = Path.home() / "omniswipe-backend"
+OOTESTPROJECT1 = Path.home() / "OOTestProject1"
 RESULTS_BASE = Path("/tmp/dev-loop/stress-test")
 WORKTREE_BASE = Path("/tmp/dev-loop/worktrees")
 SESSION_BASE = Path("/tmp/dev-loop/sessions")
@@ -67,7 +67,7 @@ def cleanup_worktree(issue_id: str):
     wt = WORKTREE_BASE / issue_id
     if wt.exists():
         subprocess.run(["rm", "-rf", str(wt)], check=False)
-    for repo in [PROMPT_BENCH, OMNISWIPE_BACKEND]:
+    for repo in [PROMPT_BENCH, OOTESTPROJECT1]:
         subprocess.run(
             ["git", "worktree", "prune"],
             capture_output=True, check=False, cwd=str(repo),
@@ -75,32 +75,32 @@ def cleanup_worktree(issue_id: str):
 
 
 def setup_tb5_branch(issue_id: str) -> bool:
-    """Create a dl/<id> branch in prompt-bench with a change."""
+    """Create a dl/<id> branch in OOTestProject1 with a non-matching change."""
     branch = f"dl/{issue_id}"
-    # Clean up if exists
     subprocess.run(
         ["git", "branch", "-D", branch],
-        capture_output=True, check=False, cwd=str(PROMPT_BENCH),
+        capture_output=True, check=False, cwd=str(OOTESTPROJECT1),
     )
     r = subprocess.run(
         ["git", "checkout", "-b", branch],
-        capture_output=True, text=True, check=False, cwd=str(PROMPT_BENCH),
+        capture_output=True, text=True, check=False, cwd=str(OOTESTPROJECT1),
     )
     if r.returncode != 0:
         return False
 
-    calc = PROMPT_BENCH / "src" / "prompt_bench" / "calculator.py"
-    with open(calc, "a") as f:
-        f.write(f"\ndef stress_fn_{issue_id.replace('-', '_')}(x): return x * 2\n")
+    # Change a file OUTSIDE the watched db/ path to trigger cascade_skipped
+    readme = OOTESTPROJECT1 / "README.md"
+    with open(readme, "a") as f:
+        f.write(f"\n# Stress test marker: {issue_id}\n")
 
-    subprocess.run(["git", "add", str(calc)], check=False, cwd=str(PROMPT_BENCH))
+    subprocess.run(["git", "add", str(readme)], check=False, cwd=str(OOTESTPROJECT1))
     subprocess.run(
-        ["git", "commit", "-m", f"Stress test function for {issue_id}"],
-        capture_output=True, check=False, cwd=str(PROMPT_BENCH),
+        ["git", "commit", "-m", f"Stress test marker for {issue_id}"],
+        capture_output=True, check=False, cwd=str(OOTESTPROJECT1),
     )
     subprocess.run(
-        ["git", "checkout", "master"],
-        capture_output=True, check=False, cwd=str(PROMPT_BENCH),
+        ["git", "checkout", "main"],
+        capture_output=True, check=False, cwd=str(OOTESTPROJECT1),
     )
     return True
 
@@ -110,7 +110,7 @@ def cleanup_tb5_branch(issue_id: str):
     branch = f"dl/{issue_id}"
     subprocess.run(
         ["git", "branch", "-D", branch],
-        capture_output=True, check=False, cwd=str(PROMPT_BENCH),
+        capture_output=True, check=False, cwd=str(OOTESTPROJECT1),
     )
 
 
@@ -166,7 +166,7 @@ def run_tb4(issue_id: str, run_log) -> dict:
 def run_tb5(issue_id: str, run_log) -> dict:
     log(f"  TB-5 (cascade skip) issue={issue_id}", run_log)
     # TB-5 cascade_skipped path (no matching watches)
-    return run_pipeline("run_tb5", issue_id, str(PROMPT_BENCH), str(OMNISWIPE_BACKEND))
+    return run_pipeline("run_tb5", issue_id, str(OOTESTPROJECT1), str(PROMPT_BENCH))
 
 
 def run_tb6(issue_id: str, run_log) -> dict:
@@ -341,6 +341,11 @@ def main():
         ["git", "branch", "main", "master"],
         capture_output=True, check=False, cwd=str(PROMPT_BENCH),
     )
+
+    # Verify OOTestProject1 is accessible
+    if not OOTESTPROJECT1.exists():
+        log(f"ERROR: OOTestProject1 not found at {OOTESTPROJECT1}", run_log)
+        sys.exit(1)
 
     # Pre-flight: pytest
     log("Pre-flight: running pytest...", run_log)

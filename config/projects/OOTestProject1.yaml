@@ -1,0 +1,27 @@
+# Project-specific configuration for OOTestProject1
+# Controlled test environment for cross-repo and cascade validation
+
+quality_gates:
+  differential:
+    enabled: true
+  sanity:
+    enabled: true
+    commands: ["uv run pytest"]
+  relevance:
+    enabled: true
+  secrets:
+    enabled: true
+  dangerous_ops:
+    enabled: true
+  security:
+    enabled: true
+    severity_threshold: medium
+  review:
+    enabled: true
+    block_on: critical
+  cost:
+    enabled: true
+    ceiling_usd: 2.00
+
+context:
+  file_map: false  # Small repo, not needed

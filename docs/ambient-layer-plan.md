@@ -406,7 +406,7 @@ dev-loop ambient layer
   Tier 2:     active (checkpoint gates on commit)
   Daemon:     running (PID 12345, uptime 2h 14m)
   Sessions:   1 active
-    session abc123: ~/omniswipe-backend (47 checks, 1 block, 0 warns)
+    session abc123: ~/OOTestProject1 (47 checks, 1 block, 0 warns)
   Orphan worktrees: 0
   Socket:     /tmp/dev-loop/dl.sock
   Event log:  /tmp/dev-loop/events.jsonl (1,247 events)
@@ -888,7 +888,7 @@ fn wait_for_transcript_flush(path: &Path, timeout: Duration) -> bool {
 {
   "event": "ambient.block",
   "session_id": "abc123",
-  "repo": "omniswipe-backend",
+  "repo": "OOTestProject1",
   "tool": "Write",
   "check_type": "deny_list",
   "pattern": ".env",

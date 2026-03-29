@@ -114,7 +114,7 @@ tb4-turns ISSUE_ID REPO_PATH MAX_TURNS:
 
 # TB-5: Cross-repo cascade (multi-project path)
 # Usage: just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
-# Example: just tb5 dl-abc ~/prompt-bench ~/omniswipe-backend
+# Example: just tb5 dl-abc ~/OOTestProject1 ~/prompt-bench
 tb5 SOURCE_ISSUE SOURCE_REPO TARGET_REPO:
     @echo "Running TB-5: Cross-Repo Cascade"
     @echo "Source: {{SOURCE_ISSUE}} | {{SOURCE_REPO}} → {{TARGET_REPO}}"

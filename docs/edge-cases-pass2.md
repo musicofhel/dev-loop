@@ -7,7 +7,7 @@ Problems that exist in the *structure* of the system, not just individual failur
 ## The Large Repo Problem
 
 ### 26. CLAUDE.md Doesn't Scale
-**Problem:** A single CLAUDE.md works for a 5k LOC repo. For a 50k+ LOC repo (like omniswipe-backend), the agent can't hold the whole codebase in context. Our harness gives the agent an issue and says "go" — but the agent doesn't know WHERE in the codebase to look.
+**Problem:** A single CLAUDE.md works for a 5k LOC repo. For larger repos, the agent can't hold the whole codebase in context. Our harness gives the agent an issue and says "go" — but the agent doesn't know WHERE in the codebase to look.
 
 Research from the graph backs this up: the "Codified Context" paper argues for three-tier memory (hot constitution, domain-expert agents, cold knowledge base). Single-file instructions hit a wall.
 
@@ -20,7 +20,7 @@ The orchestration layer should generate a "scope hint" from the issue — e.g., 
 
 **Also:** Headroom (0.88 in graph) is a transparent proxy that compresses LLM context by 47-92% (strips boilerplate from tool outputs, DB queries, file reads). This belongs in the runtime layer between agent and LLM API, alongside the token proxy.
 
-**TB-1 action:** Start simple (prompt-bench is small). Add scope hints for TB-5 when targeting omniswipe-backend.
+**TB-1 action:** Start simple (prompt-bench is small). Add scope hints for TB-5 when targeting larger target repos.
 
 ### 27. Context Compression Missing from Stack
 **Problem:** We have a token *proxy* (metering) but no token *optimizer*. Every file read, every tool output goes to the LLM at full size. This wastes money and eats context window.
@@ -67,7 +67,7 @@ This is "in-process backpressure" vs "post-process gates." Both are needed, but 
 
 This requires checking out main briefly before the agent's branch, or caching recent main test results.
 
-**TB-1 action:** For prompt-bench (small, presumably stable tests), this is low risk. Must be in place before TB-5 targets omniswipe-backend (which has more complex test suites).
+**TB-1 action:** For prompt-bench (small, presumably stable tests), this is low risk. Must be in place before TB-5 targets repos with complex test suites.
 
 ---
 
@@ -112,8 +112,8 @@ Flagged issues get moved to "deferred" with "needs-clarification" label instead 
 
 ## Dangerous Operations
 
-### 33. Database Migrations
-**Problem:** Agent working on omniswipe-backend could create a Prisma migration with `DROP COLUMN` or `ALTER TABLE`. Migrations are IRREVERSIBLE in production. An automated agent creating destructive migrations is a nightmare.
+### 33. Destructive Operations (Migrations)
+**Problem:** An agent could create a database migration with `DROP COLUMN` or `ALTER TABLE`. Migrations are IRREVERSIBLE in production. An automated agent creating destructive migrations is a nightmare.
 
 **Fix:** Migration-specific quality gate:
 - Detect any new migration files in the diff
@@ -139,7 +139,7 @@ migrations:
     - INSERT
 ```
 
-**TB-1 action:** Not relevant for prompt-bench. MUST be in place before any TB targets omniswipe-backend.
+**TB-1 action:** Not relevant for prompt-bench or OOTestProject1 (no migrations). Deferred until a repo with a migration framework is targeted.
 
 ### 34. Lock File Inconsistency
 **Problem:** Agent updates `package.json` but doesn't run `npm install`, leaving `package-lock.json` out of sync. Or agent runs `npm install` which pulls in unrelated dependency updates.
