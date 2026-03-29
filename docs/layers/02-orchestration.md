@@ -127,6 +127,6 @@ parent: intake.issue_pickup (trace_id from intake)
 - **TB-6**: Normal orchestration, NDJSON session captured downstream.
 
 ### Open Questions
-- [ ] Task decomposition: LLM-based or rule-based for MVP?
-- [ ] How to handle issues that need multiple agents working in sequence (not parallel)?
-- [ ] Worktree cleanup: immediate after merge, or keep for N hours for debugging?
+- [ ] Task decomposition: LLM-based or rule-based for MVP? (Status: deferred, not blocking any active TB)
+- [ ] How to handle issues that need multiple agents working in sequence (not parallel)? (Status: deferred, not blocking any active TB)
+- [x] Worktree cleanup: immediate after merge, or keep for N hours for debugging? (Resolved: immediate cleanup after each TB run via `cleanup_worktree()`. See `src/devloop/orchestration/server.py`.)

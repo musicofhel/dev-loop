@@ -134,6 +134,6 @@ parent: orchestration.setup_worktree
 ```
 
 ### Open Questions
-- [ ] How does the agent report "I'm stuck" vs silently failing?
-- [ ] Max execution time per agent run? (currently 300s default, separate from cost ceiling)
-- [ ] Streaming NDJSON for real-time monitoring (TB-2+)
+- [x] How does the agent report "I'm stuck" vs silently failing? (Resolved: TB-4 handles this via turn limits and escalation — agent hits max_turns, gates fail, feedback loop escalates to human.)
+- [x] Max execution time per agent run? (Resolved: 300s default, configurable per persona in agents.yaml. Enforced via subprocess timeout in `spawn_agent()`.)
+- [ ] Streaming NDJSON for real-time monitoring (TB-2+) (Status: deferred, not blocking any active TB)

@@ -153,6 +153,6 @@ src/devloop/observability/
 - `health_check` — check if OpenObserve is running and reachable
 
 ### Open Questions
-- [ ] OpenObserve retention policy — how long to keep traces? (30 days default)
-- [ ] Alert fatigue — what's the right threshold before we tune out notifications?
-- [ ] How to correlate NDJSON sessions with OTel traces? (trace_id as link)
+- [x] OpenObserve retention policy — how long to keep traces? (Resolved: 30 days default is fine, no action needed.)
+- [ ] Alert fatigue — what's the right threshold before we tune out notifications? (Status: deferred, not blocking any active TB)
+- [x] How to correlate NDJSON sessions with OTel traces? (Resolved: TB-6 does this via `trace_id` in session metadata. See `src/devloop/feedback/tb6_replay.py`.)

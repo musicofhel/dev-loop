@@ -68,6 +68,6 @@ This span becomes the root of the full trace for this work item.
 - Mock intake mode: `just tb1-mock` loads from YAML fixture, creates beads issue, runs pipeline
 
 ### Open Questions
-- [ ] Beads-Kanban-UI maturity — is it production-ready?
-- [ ] Do we create sub-issues for decomposed tasks, or keep it flat?
-- [ ] How do we handle issues that span multiple repos? (TB-5 addresses this)
+- [ ] Beads-Kanban-UI maturity — is it production-ready? (Status: deferred, not blocking any active TB)
+- [ ] Do we create sub-issues for decomposed tasks, or keep it flat? (Status: deferred, not blocking any active TB)
+- [x] How do we handle issues that span multiple repos? (Resolved: TB-5 implements cross-repo cascade via dependency map watches and downstream issue creation. See `src/devloop/feedback/tb5_cascade.py`.)

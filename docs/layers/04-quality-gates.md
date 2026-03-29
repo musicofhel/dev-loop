@@ -239,6 +239,6 @@ quality_gates:
 ```
 
 ### Open Questions
-- [ ] Claude Code Security: when does research preview become GA?
-- [ ] How to handle flaky gates? (gate passes sometimes, fails sometimes on same code)
-- [ ] Should gate results be posted as PR comments or stored separately?
+- [x] Claude Code Security: when does research preview become GA? (Resolved: no longer applicable — dev-loop uses `--dangerously-skip-permissions` for unattended runs; sandbox mode is not part of the architecture.)
+- [ ] How to handle flaky gates? (gate passes sometimes, fails sometimes on same code) (Status: deferred, not blocking any active TB)
+- [ ] Should gate results be posted as PR comments or stored separately? (Status: deferred, not blocking any active TB)
