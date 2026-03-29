@@ -13,7 +13,7 @@ import yaml
 SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts" / "feedback"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from score import compute_metrics, load_feedback, _prf
+from score import compute_metrics, load_feedback, _prf, SEED_LABELS_DIR, _load_from_dir
 from suggest_tuning import (
     analyze,
     generate_yaml_diff,
@@ -118,8 +118,10 @@ class TestLoadFeedback:
             "feedback_ts": "2026-03-16T14:00:00Z",
         }
         (tmp_path / "L1.yaml").write_text(yaml.dump(fb))
+        empty = tmp_path / "empty"
+        empty.mkdir()
 
-        with patch("score.FEEDBACK_DIR", tmp_path):
+        with patch("score.FEEDBACK_DIR", tmp_path), patch("score.SEED_LABELS_DIR", empty):
             feedbacks = load_feedback()
         assert len(feedbacks) == 1
         assert feedbacks[0]["label"] == "correct"
@@ -127,15 +129,36 @@ class TestLoadFeedback:
     def test_ignores_invalid_yaml(self, tmp_path):
         (tmp_path / "bad.yaml").write_text("{{invalid yaml")
         (tmp_path / "good.yaml").write_text(yaml.dump({"event_id": "L1", "label": "correct"}))
+        empty = tmp_path / "empty"
+        empty.mkdir()
 
-        with patch("score.FEEDBACK_DIR", tmp_path):
+        with patch("score.FEEDBACK_DIR", tmp_path), patch("score.SEED_LABELS_DIR", empty):
             feedbacks = load_feedback()
         assert len(feedbacks) == 1
 
     def test_empty_dir(self, tmp_path):
-        with patch("score.FEEDBACK_DIR", tmp_path):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        with patch("score.FEEDBACK_DIR", tmp_path), patch("score.SEED_LABELS_DIR", empty):
             feedbacks = load_feedback()
         assert len(feedbacks) == 0
+
+
+class TestSeedLabels:
+    """Verify seed labels produce meaningful metrics."""
+
+    def test_seed_labels_exist(self):
+        feedbacks = _load_from_dir(SEED_LABELS_DIR)
+        assert len(feedbacks) >= 4, f"Expected at least 4 seed labels, found {len(feedbacks)}"
+
+    def test_secrets_f1_above_zero(self):
+        feedbacks = _load_from_dir(SEED_LABELS_DIR)
+        metrics = compute_metrics(feedbacks)
+        assert "secrets" in metrics["per_check"], "No secrets labels in seed data"
+        secrets = metrics["per_check"]["secrets"]
+        assert secrets["tp"] >= 3, f"Expected >= 3 secrets TP, got {secrets['tp']}"
+        assert secrets["fn"] >= 1, f"Expected >= 1 secrets FN, got {secrets['fn']}"
+        assert secrets["f1"] > 0.0, f"Secrets F1 should be > 0, got {secrets['f1']}"
 
 
 # ── suggest_tuning.py tests ─────────────────────────────────────

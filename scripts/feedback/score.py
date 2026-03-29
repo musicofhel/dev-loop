@@ -21,15 +21,16 @@ from pathlib import Path
 import yaml
 
 FEEDBACK_DIR = Path("/tmp/dev-loop/feedback")
+SEED_LABELS_DIR = Path(__file__).parent / "seed_labels"
 HISTORY_FILE = Path(__file__).parent / "history.jsonl"
 
 
-def load_feedback() -> list[dict]:
-    """Load all feedback YAML files."""
+def _load_from_dir(directory: Path) -> list[dict]:
+    """Load all feedback YAML files from a directory."""
     feedbacks = []
-    if not FEEDBACK_DIR.exists():
+    if not directory.exists():
         return feedbacks
-    for p in sorted(FEEDBACK_DIR.glob("*.yaml")):
+    for p in sorted(directory.glob("*.yaml")):
         try:
             with open(p) as f:
                 fb = yaml.safe_load(f)
@@ -38,6 +39,11 @@ def load_feedback() -> list[dict]:
         except Exception:
             continue
     return feedbacks
+
+
+def load_feedback() -> list[dict]:
+    """Load all feedback YAML files from runtime and seed directories."""
+    return _load_from_dir(SEED_LABELS_DIR) + _load_from_dir(FEEDBACK_DIR)
 
 
 def compute_metrics(feedbacks: list[dict]) -> dict:
