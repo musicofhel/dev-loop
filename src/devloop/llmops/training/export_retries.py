@@ -14,6 +14,10 @@ import json
 import os
 from pathlib import Path
 
+from opentelemetry import trace
+
+tracer = trace.get_tracer("llmops.training", "0.1.0")
+
 
 def _is_retry_prompt(content: str) -> bool:
     """Detect if content is a retry prompt from build_retry_prompt().
@@ -152,31 +156,38 @@ def export_retries(
             "~/.local/share/dev-loop/llmops/training/retry_prompt.jsonl"
         )
 
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with tracer.start_as_current_span(
+        "llmops.training.export_retries",
+        attributes={"llmops.output_path": output_path},
+    ) as span:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    files = sorted(glob.glob(os.path.join(sessions_dir, "*.jsonl")))[:max_sessions]
-    examples: list[dict] = []
+        files = sorted(glob.glob(os.path.join(sessions_dir, "*.jsonl")))[:max_sessions]
+        examples: list[dict] = []
 
-    for fpath in files:
-        events = []
-        with open(fpath) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+        for fpath in files:
+            events = []
+            with open(fpath) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
 
-        for example in _extract_retry_data(events):
-            example["metadata"]["session_id"] = (
-                os.path.basename(fpath).replace(".jsonl", "")
-            )
-            example["metadata"]["source"] = "retry_session"
-            examples.append(example)
+            for example in _extract_retry_data(events):
+                example["metadata"]["session_id"] = (
+                    os.path.basename(fpath).replace(".jsonl", "")
+                )
+                example["metadata"]["source"] = "retry_session"
+                examples.append(example)
 
-    return safe_write_jsonl(output_path, examples, force=force)
+        span.set_attribute("llmops.sessions_scanned", len(files))
+        span.set_attribute("llmops.examples_exported", len(examples))
+
+        return safe_write_jsonl(output_path, examples, force=force)
 
 
 if __name__ == "__main__":

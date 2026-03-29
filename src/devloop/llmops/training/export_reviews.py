@@ -15,6 +15,10 @@ import os
 import re
 from pathlib import Path
 
+from opentelemetry import trace
+
+tracer = trace.get_tracer("llmops.training", "0.1.0")
+
 
 def _parse_review_prompt(content: str) -> dict | None:
     """Extract structured fields from a Gate 4 review prompt.
@@ -170,57 +174,70 @@ def export_reviews(
             "~/.local/share/dev-loop/llmops/training/code_review.jsonl"
         )
 
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with tracer.start_as_current_span(
+        "llmops.training.export_reviews",
+        attributes={"llmops.output_path": output_path},
+    ) as span:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    files = sorted(glob.glob(os.path.join(sessions_dir, "*.jsonl")))[:max_sessions]
-    examples: list[dict] = []
+        files = sorted(glob.glob(os.path.join(sessions_dir, "*.jsonl")))[:max_sessions]
+        examples: list[dict] = []
+        skipped_count = 0
 
-    for fpath in files:
-        # Parse all events from the session
-        events = []
-        with open(fpath) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
+        for fpath in files:
+            events = []
+            with open(fpath) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+
+            session_had_review = False
+            for i, evt in enumerate(events):
+                msg = evt.get("message", {})
+                content = msg.get("content", "")
+                if not isinstance(content, str):
                     continue
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
+
+                parsed = _parse_review_prompt(content)
+                if parsed is None:
                     continue
 
-        # Find review prompts and their responses
-        for i, evt in enumerate(events):
-            msg = evt.get("message", {})
-            content = msg.get("content", "")
-            if not isinstance(content, str):
-                continue
+                session_had_review = True
+                findings_json = _find_review_response(events, i)
+                if findings_json is None:
+                    continue
 
-            parsed = _parse_review_prompt(content)
-            if parsed is None:
-                continue
+                examples.append({
+                    "inputs": {
+                        "diff": parsed["diff"][:50000],
+                        "issue_context": parsed["issue_context"],
+                        "review_criteria": parsed["review_criteria"],
+                    },
+                    "outputs": {
+                        "findings_json": findings_json,
+                    },
+                    "metadata": {
+                        "session_id": os.path.basename(fpath).replace(".jsonl", ""),
+                        "source": "gate4_session",
+                    },
+                })
 
-            # Find the corresponding response
-            findings_json = _find_review_response(events, i)
-            if findings_json is None:
-                # No parseable response — skip to avoid false-negative training data
-                continue
+            if session_had_review and not any(
+                e["metadata"]["session_id"] == os.path.basename(fpath).replace(".jsonl", "")
+                for e in examples
+            ):
+                skipped_count += 1
 
-            examples.append({
-                "inputs": {
-                    "diff": parsed["diff"][:50000],  # cap large diffs
-                    "issue_context": parsed["issue_context"],
-                    "review_criteria": parsed["review_criteria"],
-                },
-                "outputs": {
-                    "findings_json": findings_json,
-                },
-                "metadata": {
-                    "session_id": os.path.basename(fpath).replace(".jsonl", ""),
-                    "source": "gate4_session",
-                },
-            })
+        span.set_attribute("llmops.sessions_scanned", len(files))
+        span.set_attribute("llmops.examples_exported", len(examples))
+        span.set_attribute("llmops.skipped_count", skipped_count)
 
-    return safe_write_jsonl(output_path, examples, force=force)
+        return safe_write_jsonl(output_path, examples, force=force)
 
 
 if __name__ == "__main__":

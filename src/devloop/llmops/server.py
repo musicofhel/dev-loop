@@ -89,16 +89,23 @@ def optimize_program(program_name: str, num_examples: int = 50) -> dict:
 )
 def get_program_status(program_name: str) -> dict:
     """Return the latest artifact metadata for a program."""
-    if program_name not in VALID_PROGRAMS:
-        return {"error": f"Unknown program: {program_name}. Valid: {VALID_PROGRAMS}"}
-    artifact = _latest_artifact(program_name)
-    if artifact is None:
-        return {"program_name": program_name, "status": "not_optimized", "artifact": None}
-    return {
-        "program_name": program_name,
-        "status": "optimized",
-        "artifact": artifact.model_dump(),
-    }
+    with tracer.start_as_current_span(
+        "llmops.get_program_status",
+        attributes={"llmops.program": program_name},
+    ) as span:
+        if program_name not in VALID_PROGRAMS:
+            span.set_status(trace.StatusCode.ERROR, f"Unknown program: {program_name}")
+            return {"error": f"Unknown program: {program_name}. Valid: {VALID_PROGRAMS}"}
+        artifact = _latest_artifact(program_name)
+        status = "optimized" if artifact else "not_optimized"
+        span.set_attribute("llmops.status", status)
+        if artifact is None:
+            return {"program_name": program_name, "status": "not_optimized", "artifact": None}
+        return {
+            "program_name": program_name,
+            "status": "optimized",
+            "artifact": artifact.model_dump(),
+        }
 
 
 @mcp.tool(
@@ -132,12 +139,18 @@ def get_optimized_prompt(program_name: str, inputs: dict) -> dict:
 )
 def list_programs() -> list[dict]:
     """Return status for all programs."""
-    results = []
-    for name in sorted(VALID_PROGRAMS):
-        artifact = _latest_artifact(name)
-        results.append({
-            "program_name": name,
-            "status": "optimized" if artifact else "not_optimized",
-            "artifact": artifact.model_dump() if artifact else None,
-        })
-    return results
+    with tracer.start_as_current_span("llmops.list_programs") as span:
+        results = []
+        optimized_count = 0
+        for name in sorted(VALID_PROGRAMS):
+            artifact = _latest_artifact(name)
+            if artifact:
+                optimized_count += 1
+            results.append({
+                "program_name": name,
+                "status": "optimized" if artifact else "not_optimized",
+                "artifact": artifact.model_dump() if artifact else None,
+            })
+        span.set_attribute("llmops.program_count", len(results))
+        span.set_attribute("llmops.optimized_count", optimized_count)
+        return results

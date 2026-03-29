@@ -16,9 +16,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import dspy
+from opentelemetry import trace
 
 from devloop.llmops.server import _load_llmops_config
 from devloop.llmops.types import OptimizationConfig, OptimizationRun, ProgramArtifact
+
+tracer = trace.get_tracer("llmops.optimize", "0.1.0")
 
 
 def _load_training_data(program_name: str, training_dir: Path, max_examples: int) -> list:
@@ -117,147 +120,235 @@ def run_optimization(
     run_id = str(uuid.uuid4())[:8]
     started_at = datetime.now(UTC).isoformat()
 
-    cfg = _load_llmops_config()
-    pcfg = cfg.programs.get(program_name, OptimizationConfig())
+    with tracer.start_as_current_span(
+        "llmops.optimize.run",
+        attributes={
+            "llmops.program": program_name,
+            "llmops.run_id": run_id,
+            "llmops.max_examples": max_examples,
+        },
+    ) as parent_span:
+        cfg = _load_llmops_config()
+        pcfg = cfg.programs.get(program_name, OptimizationConfig())
 
-    # Verify API key
-    api_key = os.environ.get(cfg.api_key_env)
-    if not api_key:
+        # Verify API key
+        api_key = os.environ.get(cfg.api_key_env)
+        if not api_key:
+            parent_span.set_status(
+                trace.StatusCode.ERROR, f"{cfg.api_key_env} not set"
+            )
+            return OptimizationRun(
+                run_id=run_id,
+                program_name=program_name,
+                started_at=started_at,
+                status="failed",
+                error=f"Environment variable {cfg.api_key_env} not set. "
+                f"DSPy requires direct API access (not Claude Code CLI auth).",
+            )
+
+        training_dir = Path(cfg.training_dir).expanduser()
+        artifact_dir = Path(cfg.artifact_dir).expanduser()
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        # Load training data
+        with tracer.start_as_current_span(
+            "llmops.optimize.load_training_data",
+            attributes={
+                "llmops.program": program_name,
+                "llmops.training_dir": str(training_dir),
+                "llmops.examples_requested": max_examples,
+            },
+        ) as load_span:
+            examples = _load_training_data(program_name, training_dir, max_examples)
+            load_span.set_attribute("llmops.examples_loaded", len(examples))
+
+        if len(examples) < 5:
+            parent_span.set_status(
+                trace.StatusCode.ERROR,
+                f"Insufficient training data: {len(examples)}",
+            )
+            return OptimizationRun(
+                run_id=run_id,
+                program_name=program_name,
+                started_at=started_at,
+                status="failed",
+                num_training_examples=len(examples),
+                error=f"Need at least 5 training examples, found {len(examples)}. "
+                f"Run 'just llmops-export' first.",
+            )
+
+        # Balance and split
+        with tracer.start_as_current_span(
+            "llmops.optimize.balance_and_split",
+            attributes={
+                "llmops.program": program_name,
+                "llmops.balanced": program_name == "code_review",
+            },
+        ) as split_span:
+            if program_name == "code_review":
+                examples = _balance_code_review(examples)
+
+            split = int(len(examples) * 0.8)
+            trainset = examples[:split]
+            valset = examples[split:]
+            if not valset:
+                valset = trainset[-2:]
+                trainset = trainset[:-2]
+            split_span.set_attribute("llmops.trainset_size", len(trainset))
+            split_span.set_attribute("llmops.valset_size", len(valset))
+
+        # Configure DSPy LM
+        with tracer.start_as_current_span(
+            "llmops.optimize.configure_lm",
+            attributes={
+                "llmops.provider": cfg.provider,
+                "llmops.model": pcfg.model,
+            },
+        ) as lm_span:
+            if cfg.provider == "openrouter":
+                model_str = f"openrouter/anthropic/{pcfg.model}"
+            else:
+                model_str = f"anthropic/{pcfg.model}"
+            task_lm = dspy.LM(model_str, max_tokens=2048)
+            dspy.configure(lm=task_lm)
+            lm_span.set_attribute("llmops.model_string", model_str)
+
+        # Load program and metric
+        from devloop.llmops.programs import load_program
+
+        module = load_program(program_name)
+        metric = _get_metric(program_name)
+
+        # Evaluate baseline (unoptimized)
+        with tracer.start_as_current_span(
+            "llmops.optimize.evaluate_baseline",
+            attributes={
+                "llmops.program": program_name,
+                "llmops.valset_size": len(valset),
+            },
+        ) as baseline_span:
+            baseline_scores = []
+            baseline_errors = 0
+            for ex in valset:
+                try:
+                    pred = module(**{k: ex[k] for k in ex._input_keys})
+                    result = metric(ex, pred)
+                    baseline_scores.append(result.score)
+                except Exception:
+                    baseline_scores.append(0.0)
+                    baseline_errors += 1
+            metric_before = (
+                sum(baseline_scores) / len(baseline_scores) if baseline_scores else 0.0
+            )
+            baseline_span.set_attribute("llmops.metric_before", metric_before)
+            baseline_span.set_attribute("llmops.baseline_errors", baseline_errors)
+
+        # Run MIPROv2 (GEPA) optimization
+        with tracer.start_as_current_span(
+            "llmops.optimize.run_miprov2",
+            attributes={
+                "llmops.program": program_name,
+                "llmops.max_bootstrapped_demos": pcfg.max_bootstrapped_demos,
+                "llmops.max_labeled_demos": pcfg.max_labeled_demos,
+                "llmops.num_trials": pcfg.num_trials,
+                "llmops.auto_setting": "medium",
+            },
+        ) as mipro_span:
+            try:
+                optimizer = dspy.MIPROv2(
+                    metric=metric,
+                    auto="medium",
+                    num_threads=4,
+                    max_bootstrapped_demos=pcfg.max_bootstrapped_demos,
+                    max_labeled_demos=pcfg.max_labeled_demos,
+                )
+                optimized = optimizer.compile(
+                    module, trainset=trainset, valset=valset
+                )
+            except Exception as exc:
+                mipro_span.set_status(trace.StatusCode.ERROR, str(exc))
+                parent_span.set_status(trace.StatusCode.ERROR, str(exc))
+                return OptimizationRun(
+                    run_id=run_id,
+                    program_name=program_name,
+                    started_at=started_at,
+                    completed_at=datetime.now(UTC).isoformat(),
+                    status="failed",
+                    metric_before=round(metric_before, 3),
+                    num_training_examples=len(trainset),
+                    num_val_examples=len(valset),
+                    num_trials=pcfg.num_trials,
+                    error=str(exc),
+                )
+
+        # Evaluate optimized
+        with tracer.start_as_current_span(
+            "llmops.optimize.evaluate_optimized",
+            attributes={
+                "llmops.program": program_name,
+                "llmops.valset_size": len(valset),
+            },
+        ) as opt_span:
+            opt_scores = []
+            for ex in valset:
+                try:
+                    pred = optimized(**{k: ex[k] for k in ex._input_keys})
+                    result = metric(ex, pred)
+                    opt_scores.append(result.score)
+                except Exception:
+                    opt_scores.append(0.0)
+            metric_after = (
+                sum(opt_scores) / len(opt_scores) if opt_scores else 0.0
+            )
+            opt_span.set_attribute("llmops.metric_after", metric_after)
+            opt_span.set_attribute(
+                "llmops.improvement", metric_after - metric_before
+            )
+
+        # Save artifact
+        with tracer.start_as_current_span(
+            "llmops.optimize.save_artifact",
+            attributes={"llmops.program": program_name},
+        ) as save_span:
+            version = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+            artifact_path = artifact_dir / f"{program_name}_{version}.json"
+            latest_path = artifact_dir / f"{program_name}_latest.json"
+
+            optimized.save(str(artifact_path))
+            optimized.save(str(latest_path))
+
+            artifact = ProgramArtifact(
+                program_name=program_name,
+                version=version,
+                artifact_path=str(artifact_path),
+                created_at=datetime.now(UTC).isoformat(),
+                metric_score=round(metric_after, 3),
+                num_training_examples=len(trainset),
+                num_val_examples=len(valset),
+            )
+
+            meta_path = artifact_dir / f"{program_name}_latest.meta.json"
+            with open(meta_path, "w") as f:
+                json.dump(artifact.model_dump(), f, indent=2)
+
+            save_span.set_attribute("llmops.version", version)
+            save_span.set_attribute("llmops.artifact_path", str(artifact_path))
+            save_span.set_attribute("llmops.metric_score", round(metric_after, 3))
+
+        completed_at = datetime.now(UTC).isoformat()
         return OptimizationRun(
             run_id=run_id,
             program_name=program_name,
             started_at=started_at,
-            status="failed",
-            error=f"Environment variable {cfg.api_key_env} not set. "
-            f"DSPy requires direct API access (not Claude Code CLI auth).",
-        )
-
-    training_dir = Path(cfg.training_dir).expanduser()
-    artifact_dir = Path(cfg.artifact_dir).expanduser()
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load training data
-    examples = _load_training_data(program_name, training_dir, max_examples)
-    if len(examples) < 5:
-        return OptimizationRun(
-            run_id=run_id,
-            program_name=program_name,
-            started_at=started_at,
-            status="failed",
-            num_training_examples=len(examples),
-            error=f"Need at least 5 training examples, found {len(examples)}. "
-            f"Run 'just llmops-export' first.",
-        )
-
-    # Balance class distribution for code_review before splitting
-    if program_name == "code_review":
-        examples = _balance_code_review(examples)
-
-    # Split train/val (80/20)
-    split = int(len(examples) * 0.8)
-    trainset = examples[:split]
-    valset = examples[split:]
-    if not valset:
-        valset = trainset[-2:]
-        trainset = trainset[:-2]
-
-    # Configure DSPy — build LiteLLM model string from provider
-    if cfg.provider == "openrouter":
-        model_str = f"openrouter/anthropic/{pcfg.model}"
-    else:
-        model_str = f"anthropic/{pcfg.model}"
-    task_lm = dspy.LM(model_str, max_tokens=2048)
-    dspy.configure(lm=task_lm)
-
-    # Load program and metric
-    from devloop.llmops.programs import load_program
-
-    module = load_program(program_name)
-    metric = _get_metric(program_name)
-
-    # Evaluate baseline (unoptimized)
-    baseline_scores = []
-    for ex in valset:
-        try:
-            pred = module(**{k: ex[k] for k in ex._input_keys})
-            result = metric(ex, pred)
-            baseline_scores.append(result.score)
-        except Exception:
-            baseline_scores.append(0.0)
-    metric_before = sum(baseline_scores) / len(baseline_scores) if baseline_scores else 0.0
-
-    # Run MIPROv2 (GEPA) optimization
-    try:
-        optimizer = dspy.MIPROv2(
-            metric=metric,
-            auto="medium",
-            num_threads=4,
-            max_bootstrapped_demos=pcfg.max_bootstrapped_demos,
-            max_labeled_demos=pcfg.max_labeled_demos,
-        )
-        optimized = optimizer.compile(module, trainset=trainset, valset=valset)
-    except Exception as exc:
-        return OptimizationRun(
-            run_id=run_id,
-            program_name=program_name,
-            started_at=started_at,
-            completed_at=datetime.now(UTC).isoformat(),
-            status="failed",
+            completed_at=completed_at,
+            status="completed",
             metric_before=round(metric_before, 3),
+            metric_after=round(metric_after, 3),
             num_training_examples=len(trainset),
             num_val_examples=len(valset),
             num_trials=pcfg.num_trials,
-            error=str(exc),
+            artifact=artifact,
         )
-
-    # Evaluate optimized
-    opt_scores = []
-    for ex in valset:
-        try:
-            pred = optimized(**{k: ex[k] for k in ex._input_keys})
-            result = metric(ex, pred)
-            opt_scores.append(result.score)
-        except Exception:
-            opt_scores.append(0.0)
-    metric_after = sum(opt_scores) / len(opt_scores) if opt_scores else 0.0
-
-    # Save artifact
-    version = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    artifact_path = artifact_dir / f"{program_name}_{version}.json"
-    latest_path = artifact_dir / f"{program_name}_latest.json"
-
-    optimized.save(str(artifact_path))
-    optimized.save(str(latest_path))
-
-    artifact = ProgramArtifact(
-        program_name=program_name,
-        version=version,
-        artifact_path=str(artifact_path),
-        created_at=datetime.now(UTC).isoformat(),
-        metric_score=round(metric_after, 3),
-        num_training_examples=len(trainset),
-        num_val_examples=len(valset),
-    )
-
-    # Save metadata
-    meta_path = artifact_dir / f"{program_name}_latest.meta.json"
-    with open(meta_path, "w") as f:
-        json.dump(artifact.model_dump(), f, indent=2)
-
-    completed_at = datetime.now(UTC).isoformat()
-    return OptimizationRun(
-        run_id=run_id,
-        program_name=program_name,
-        started_at=started_at,
-        completed_at=completed_at,
-        status="completed",
-        metric_before=round(metric_before, 3),
-        metric_after=round(metric_after, 3),
-        num_training_examples=len(trainset),
-        num_val_examples=len(valset),
-        num_trials=pcfg.num_trials,
-        artifact=artifact,
-    )
 
 
 if __name__ == "__main__":
