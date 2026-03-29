@@ -94,9 +94,14 @@ def _collect_all_failures(gate_failures: list[dict]) -> list[dict]:
 
     Each record in gate_failures is a dict with keys from GateSuiteResult
     or individual GateResult dicts. This handles both formats.
+
+    Records marked ``is_synthetic: True`` (from forced-failure mode) are
+    skipped — they carry no diagnostic signal for the agent.
     """
     failed = []
     for record in gate_failures:
+        if record.get("is_synthetic"):
+            continue
         # If it's a GateSuiteResult-shaped dict with gate_results
         if "gate_results" in record:
             for gr in record["gate_results"]:

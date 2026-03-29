@@ -78,8 +78,13 @@ def _seed_test_fixture(worktree_path: str) -> bool:
 
 
 def _make_forced_failure() -> dict:
-    """Return a synthetic GateSuiteResult dict that always fails."""
-    return GateSuiteResult(
+    """Return a synthetic GateSuiteResult dict that always fails.
+
+    Includes ``is_synthetic: True`` so retry prompt construction can
+    filter it out on attempt 2+ (the synthetic failure carries no
+    diagnostic signal for the agent).
+    """
+    result = GateSuiteResult(
         overall_passed=False,
         gate_results=[
             GateResult(
@@ -100,6 +105,8 @@ def _make_forced_failure() -> dict:
         first_failure="gate_0_sanity",
         total_duration_seconds=0.0,
     ).model_dump()
+    result["is_synthetic"] = True
+    return result
 
 
 def _verify_blocked_status(issue_id: str, repo_path: str | None = None) -> bool:
@@ -477,7 +484,7 @@ def run_tb2(
             # Phase 10: Gates failed -> retry loop with span linking
             # ----------------------------------------------------------
             all_gate_failures: list[dict] = [gate_raw]
-            previous_span_context = None
+            previous_span_context = gates_span.get_span_context()
 
             for attempt in range(1, max_retries + 1):
                 retries_used = attempt

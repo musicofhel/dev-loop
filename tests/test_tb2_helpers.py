@@ -39,6 +39,43 @@ class TestMakeForcedFailure:
         assert findings[0].severity == "critical"
         assert "FORCED FAILURE" in findings[0].message
 
+    def test_is_synthetic_flag(self):
+        result = _make_forced_failure()
+        assert result.get("is_synthetic") is True
+
+
+# ---------------------------------------------------------------------------
+# _collect_all_failures tests
+# ---------------------------------------------------------------------------
+
+
+class TestCollectAllFailures:
+    """Tests for failure extraction and synthetic filtering."""
+
+    def test_filters_synthetic_records(self):
+        from devloop.feedback.server import _collect_all_failures
+
+        synthetic = _make_forced_failure()
+        real = {
+            "gate_results": [
+                {"gate_name": "gate_0_sanity", "passed": False, "findings": [{"severity": "critical", "message": "real failure"}]},
+            ],
+        }
+        failures = _collect_all_failures([synthetic, real])
+        assert len(failures) == 1
+        assert failures[0]["gate_name"] == "gate_0_sanity"
+        assert "real failure" in failures[0]["findings"][0]["message"]
+
+    def test_keeps_all_real_failures(self):
+        from devloop.feedback.server import _collect_all_failures
+
+        records = [
+            {"gate_results": [{"gate_name": "gate_0_sanity", "passed": False, "findings": []}]},
+            {"gate_results": [{"gate_name": "gate_2_secrets", "passed": False, "findings": []}]},
+        ]
+        failures = _collect_all_failures(records)
+        assert len(failures) == 2
+
 
 # ---------------------------------------------------------------------------
 # _seed_test_fixture tests
