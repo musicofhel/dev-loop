@@ -86,7 +86,7 @@ Dependency map (manual for now):
 # config/dependencies.yaml
 dependencies:
   - source: OOTestProject1
-    target: OOTestProject1
+    target: OOTestProject2
     watches:
       - "src/oo_test_project/db/**"
     type: data-model

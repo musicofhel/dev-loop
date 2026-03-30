@@ -41,7 +41,6 @@ class TestRealConfigFiles:
         raw = yaml.safe_load((CONFIG_DIR / "dependencies.yaml").read_text())
         config = DependenciesConfig(**raw)
         assert len(config.repo_paths) >= 1
-        # dependencies may be empty (TB-5 dormant — needs second repo)
         for dep in config.dependencies:
             assert dep.source
             assert dep.target

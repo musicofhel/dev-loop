@@ -21,3 +21,24 @@ OOTestProject1:
     - "git diff"
     - "git add"
     - "git commit"
+
+OOTestProject2:
+  allowed_tools:
+    - Read
+    - Write
+    - Edit
+    - Glob
+    - Grep
+    - Bash
+  denied_paths:
+    - .env
+    - secrets/
+    - "*.pem"
+    - "*.key"
+  bash_allowlist:
+    - "uv run pytest"
+    - "uv run python"
+    - "git status"
+    - "git diff"
+    - "git add"
+    - "git commit"

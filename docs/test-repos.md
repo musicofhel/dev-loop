@@ -9,7 +9,7 @@ These are the real repos we validate the harness against. No synthetic benchmark
 | Path | ~/OOTestProject1 |
 | Language | Python |
 | Purpose | Controlled test environment for all tracer bullets |
-| TB coverage | TB-1 through TB-4, TB-6, TB-7 (TB-5 dormant — needs second repo) |
+| TB coverage | TB-1 through TB-7 (TB-5 SOURCE) |
 
 ### Structure
 ```
@@ -31,17 +31,44 @@ tests/
 - **TB-3 issue**: "Add user input directly to SQL query" (intentional vulnerability)
 - **TB-4 issue**: "Refactor the entire test suite" (intentionally large scope)
 
+## Secondary Test Repo: OOTestProject2
+
+| Field | Value |
+|-------|-------|
+| Path | ~/OOTestProject2 |
+| Language | Python |
+| Purpose | Cascade test target — downstream of OOTestProject1 |
+| TB coverage | TB-5 TARGET, TB-1 through TB-4 and TB-6 standalone |
+
+### Structure
+```
+src/oo_test_project2/
+  __init__.py
+  models.py       # User data models (mirrors upstream schema)
+  reports.py      # Report generation from user data
+  formatters.py   # Output formatting (text, CSV, table)
+  validators.py   # Schema validation for incoming data
+tests/
+  test_models.py
+  test_reports.py
+  test_formatters.py
+  test_validators.py
+```
+
+### Cascade Relationship
+OOTestProject1 changes to `src/oo_test_project/db/**` trigger cascade issues in OOTestProject2. The dependency is real: OOTestProject2's `validators.py` defines field requirements and `models.py` defines data structures that must match the upstream schema.
+
 ## Validation Matrix
 
-| Tracer Bullet | OOTestProject1 | Notes |
-|---------------|----------------|-------|
-| TB-1 | PRIMARY | Golden path |
-| TB-2 | PRIMARY | Failure-to-retry |
-| TB-3 | PRIMARY | Security gate |
-| TB-4 | PRIMARY | Turn control |
-| TB-5 | DORMANT | Needs second test repo for cascade |
-| TB-6 | PRIMARY | Session replay |
-| TB-7 | PRIMARY | LLMOps A/B |
+| Tracer Bullet | OOTestProject1 | OOTestProject2 |
+|---------------|----------------|----------------|
+| TB-1 | PRIMARY | Standalone |
+| TB-2 | PRIMARY | Standalone |
+| TB-3 | PRIMARY | Standalone |
+| TB-4 | PRIMARY | Standalone |
+| TB-5 | SOURCE | TARGET |
+| TB-6 | PRIMARY | Standalone |
+| TB-7 | PRIMARY | - |
 
 ## What "Pass" Means
 
@@ -51,6 +78,12 @@ tests/
 - Tests pass after agent changes (or agent correctly identifies no tests exist)
 - PR is clean (no unnecessary file changes, proper commit messages)
 - Full trace visible in OpenObserve
+
+### OOTestProject2
+- Agent handles Python project structure (Python/pytest patterns)
+- Cascade issues correctly reference upstream schema changes
+- Agent updates validators.py and models.py when upstream schema changes
+- Tests pass after agent changes
 
 ## Adding a Test Repo
 

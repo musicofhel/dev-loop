@@ -24,7 +24,7 @@ Developer tooling harness. Not an app. Not a library. A composition of tools wir
 - `br ready` = what's ready to work on, `br graph` = dependency visualization
 
 ## Testing
-- Test against real repos (OOTestProject1)
+- Test against real repos (OOTestProject1, OOTestProject2)
 - No synthetic benchmarks until real-repo tracer bullets pass
 - Scoring rubric at docs/scoring-rubric.md — every tool gets evaluated
 

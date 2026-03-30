@@ -195,18 +195,20 @@ just tb4-turns <issue_id> <repo_path> 5      # override turn limit
 ```bash
 just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
 # Example:
-just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
+just tb5 dl-abc ~/OOTestProject1 ~/OOTestProject2
 ```
 
-### Status: DORMANT
-TB-5 requires two test repos for cascade to work. With prompt-bench removed and OOTestProject1 as the sole test target, there is no cascade edge. TB-5 is dormant pending a second test repo.
+### Status: PASSING (2026-03-29)
+TB-5 validates cross-repo cascade: OOTestProject1 (source) → OOTestProject2 (target).
+When files matching `src/oo_test_project/db/**` change in OOTestProject1, a cascade
+issue is created in OOTestProject2 and TB-1 runs there.
 
 **Historical run (2026-03-28, prompt-bench era):**
-- 1 e2e run: OOTestProject1 (bd-tab) → prompt-bench cascade
+- 1 e2e run: OOTestProject1 (bd-tab) → prompt-bench cascade (pre-purge)
   - Changed files detected: src/oo_test_project/db/users.py
   - Watch matched: src/oo_test_project/db/** (data-model dependency)
-  - Cascade issue created (bd-l1m) in target beads workspace
-  - TB-1 delegated on prompt-bench (failed at ambiguity_check — expected for auto-generated cascade issues)
+  - Cascade issue created in target beads workspace
+  - TB-1 delegated on target repo
 - 40 unit tests passing
 
 ---

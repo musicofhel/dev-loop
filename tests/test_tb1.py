@@ -226,8 +226,8 @@ class TestTB1CascadeIntegration:
 
     def test_cascade_triggered_after_pr(self, tb1_mocks):
         tb1_mocks.find_cascade_targets.return_value = [{
-            "target_repo_name": "OOTestProject1",
-            "target_repo_path": "/home/user/OOTestProject1",
+            "target_repo_name": "OOTestProject2",
+            "target_repo_path": "/home/user/OOTestProject2",
             "matched_watches": ["src/oo_test_project/db/**"],
             "dependency_type": "data-model",
         }]

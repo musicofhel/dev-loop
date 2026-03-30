@@ -3,5 +3,11 @@
 
 repo_paths:
   OOTestProject1: /home/musicofhel/OOTestProject1
+  OOTestProject2: /home/musicofhel/OOTestProject2
 
-dependencies: []
+dependencies:
+  - source: OOTestProject1
+    target: OOTestProject2
+    watches:
+      - "src/oo_test_project/db/**"
+    type: data-model

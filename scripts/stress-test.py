@@ -29,6 +29,7 @@ sys.path.insert(0, str(REPO / "src"))
 from devloop.paths import RESULTS_DIR, SESSIONS_DIR, WORKTREE_BASE
 
 OOTESTPROJECT1 = Path.home() / "OOTestProject1"
+OOTESTPROJECT2 = Path.home() / "OOTestProject2"
 RESULTS_BASE = RESULTS_DIR
 SESSION_BASE = SESSIONS_DIR
 
@@ -74,7 +75,7 @@ def cleanup_worktree(issue_id: str):
     wt = WORKTREE_BASE / issue_id
     if wt.exists():
         subprocess.run(["rm", "-rf", str(wt)], check=False)
-    for repo in [OOTESTPROJECT1]:
+    for repo in [OOTESTPROJECT1, OOTESTPROJECT2]:
         subprocess.run(
             ["git", "worktree", "prune"],
             capture_output=True, check=False, cwd=str(repo),
@@ -171,9 +172,9 @@ def run_tb4(issue_id: str, run_log) -> dict:
 
 
 def run_tb5(issue_id: str, run_log) -> dict:
-    log(f"  TB-5 (cascade skip) issue={issue_id}", run_log)
-    # TB-5 dormant — needs second test repo for cascade
-    return {"success": True, "cascade_skipped": True, "note": "TB-5 dormant — needs second repo"}
+    log(f"  TB-5 (cascade) issue={issue_id}", run_log)
+    # OOTestProject1 (source) → OOTestProject2 (target) via db/** watch
+    return run_pipeline("run_tb5", issue_id, str(OOTESTPROJECT1), str(OOTESTPROJECT2))
 
 
 def run_tb6(issue_id: str, run_log) -> dict:
@@ -361,9 +362,12 @@ def main():
     log(f"Results: {results_dir}", run_log)
     log(f"Log: {log_path}", run_log)
 
-    # Verify OOTestProject1 is accessible
+    # Verify test repos are accessible
     if not OOTESTPROJECT1.exists():
         log(f"ERROR: OOTestProject1 not found at {OOTESTPROJECT1}", run_log)
+        sys.exit(1)
+    if not OOTESTPROJECT2.exists():
+        log(f"ERROR: OOTestProject2 not found at {OOTESTPROJECT2}", run_log)
         sys.exit(1)
 
     # Pre-flight: pytest
