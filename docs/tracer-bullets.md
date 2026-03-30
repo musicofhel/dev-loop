@@ -21,7 +21,7 @@ Every feature is a vertical slice through all seven layers. No horizontal buildi
 
 ### Entry Criteria
 - beads workspace initialized with a test issue
-- prompt-bench repo cloned and configured as test target
+- OOTestProject1 repo cloned and configured as test target
 - OpenObserve running (Docker)
 - gitleaks installed (`shutil.which` or `~/.local/bin`)
 
@@ -50,7 +50,7 @@ just tb1 <issue_id> <repo_path>    # full run
 
 | Layer | What happens | Minimal implementation |
 |-------|-------------|----------------------|
-| Intake | Issue that will intentionally fail gates | Seed issue with pre-seeded tricky test in prompt-bench |
+| Intake | Issue that will intentionally fail gates | Seed issue with pre-seeded tricky test in OOTestProject1 |
 | Orchestration | Same as TB-1 | `git worktree add` + persona selection |
 | Runtime | Agent attempts work, produces code that fails pre-seeded tests | `claude --print` via stdin pipe |
 | Quality Gates | Gate 0 fails with structured pytest error | Gate 0 catches test failures, returns error context |
@@ -195,17 +195,18 @@ just tb4-turns <issue_id> <repo_path> 5      # override turn limit
 ```bash
 just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
 # Example:
-just tb5 dl-abc ~/OOTestProject1 ~/prompt-bench
+just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
 ```
 
-### Status: PASSING (2026-03-28)
+### Status: DORMANT
+TB-5 requires two test repos for cascade to work. With prompt-bench removed and OOTestProject1 as the sole test target, there is no cascade edge. TB-5 is dormant pending a second test repo.
+
+**Historical run (2026-03-28, prompt-bench era):**
 - 1 e2e run: OOTestProject1 (bd-tab) → prompt-bench cascade
   - Changed files detected: src/oo_test_project/db/users.py
   - Watch matched: src/oo_test_project/db/** (data-model dependency)
   - Cascade issue created (bd-l1m) in target beads workspace
   - TB-1 delegated on prompt-bench (failed at ambiguity_check — expected for auto-generated cascade issues)
-  - Outcome reported to source issue via beads comment
-- Cross-repo beads workspace fix: --parent fallback for separate beads DBs
 - 40 unit tests passing
 
 ---
@@ -282,12 +283,12 @@ just tb6-replay <session_id>       # replay a saved session
 
 ### Command
 ```bash
-just tb7 ~/prompt-bench    # uses repo diff or test fixture
+just tb7 ~/OOTestProject1    # uses repo diff or test fixture
 ```
 
 ### Status: PASSING (2026-03-28)
 
-Validated with `run_tb7("/home/musicofhel/prompt-bench")`:
+Validated with `run_tb7("/home/musicofhel/OOTestProject1")`:
 - DSPy path: 4 findings (0.06s, cached artifact v20260328-141039, score 0.771)
 - CLI path: 5 findings (24.27s)
 - Overlap: 37.2%, severity agreement: 66.7%
@@ -309,4 +310,4 @@ TB-5 (cross-repo) ──► TB-6 (session replay)
 TB-7 (llmops A/B) ◄── Layer 7 enabled + training data exported
 ```
 
-TB-1 is the spine. Everything else builds on it. Do NOT start TB-2 until TB-1 passes end-to-end on prompt-bench. TB-7 is independent — it only requires Layer 7 (LLMOps) to be enabled with training data.
+TB-1 is the spine. Everything else builds on it. Do NOT start TB-2 until TB-1 passes end-to-end on OOTestProject1. TB-7 is independent — it only requires Layer 7 (LLMOps) to be enabled with training data.

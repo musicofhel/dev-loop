@@ -60,7 +60,7 @@ class TestMatchPersona:
 
     def test_match_bug_fix(self, config):
         """Labels containing 'bug' match the bug-fix persona."""
-        result = _match_persona(["bug", "repo:prompt-bench"], config)
+        result = _match_persona(["bug", "repo:OOTestProject1"], config)
         assert result is not None
         name, data = result
         assert name == "bug-fix"
@@ -96,7 +96,7 @@ class TestMatchPersona:
 
     def test_no_matching_labels_returns_none(self, config):
         """Labels with no persona match return None (default fallback)."""
-        result = _match_persona(["urgent", "repo:prompt-bench"], config)
+        result = _match_persona(["urgent", "repo:OOTestProject1"], config)
         assert result is None
 
     def test_empty_labels_returns_none(self, config):

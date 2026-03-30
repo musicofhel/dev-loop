@@ -124,7 +124,7 @@ def _load_allowed_tools(repo_path: str) -> list[str] | None:
             config = yaml.safe_load(f) or {}
     except Exception:
         return None
-    # Match by repo basename (e.g. "prompt-bench")
+    # Match by repo basename (e.g. "OOTestProject1")
     repo_name = Path(repo_path).name
     project = config.get(repo_name, {})
     tools = project.get("allowed_tools")

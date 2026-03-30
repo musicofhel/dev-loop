@@ -57,7 +57,7 @@ Capability scoping is done via CLAUDE.md rules and `--allowedTools`, not a sandb
 
 ```yaml
 # config/capabilities.yaml
-prompt-bench:
+OOTestProject1:
   allowed_tools:
     - Read
     - Write

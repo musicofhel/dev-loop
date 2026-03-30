@@ -41,8 +41,8 @@ class TestSeedVulnerableCode:
             ["git", "config", "user.name", "Test"],
             cwd=str(tmp_path), capture_output=True, check=True,
         )
-        # Create a package dir to simulate prompt-bench
-        pkg_dir = tmp_path / "src" / "prompt_bench"
+        # Create a package dir to simulate OOTestProject1
+        pkg_dir = tmp_path / "src" / "oo_test_project"
         pkg_dir.mkdir(parents=True)
         (pkg_dir / "__init__.py").write_text("")
         # Need an initial commit for git add to work in worktree context

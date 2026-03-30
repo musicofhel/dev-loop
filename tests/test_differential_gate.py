@@ -483,15 +483,15 @@ class TestIsDifferentialEnabled:
         # Create worktree with metadata
         worktree = tmp_path / "worktree"
         worktree.mkdir()
-        metadata = {"repo_path": "/home/user/prompt-bench"}
+        metadata = {"repo_path": "/home/user/OOTestProject1"}
         (worktree / ".dev-loop-metadata.json").write_text(json.dumps(metadata))
 
         # Build a fake project root so that Path(__file__).resolve().parents[3]
-        # points to tmp_path, and config/projects/prompt-bench.yaml is there.
+        # points to tmp_path, and config/projects/OOTestProject1.yaml is there.
         fake_root = tmp_path
         config_dir = fake_root / "config" / "projects"
         config_dir.mkdir(parents=True)
-        (config_dir / "prompt-bench.yaml").write_text(
+        (config_dir / "OOTestProject1.yaml").write_text(
             "quality_gates:\n  differential:\n    enabled: true\n"
         )
 

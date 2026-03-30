@@ -18,7 +18,7 @@ def _run_tb1_mock(fixture_path: str) -> None:
         ticket = yaml.safe_load(f)
 
     issue_id = ticket.get("id", "MOCK-001")
-    repo = ticket.get("repo", "prompt-bench")
+    repo = ticket.get("repo", "OOTestProject1")
     repo_path = Path.home() / repo
     if not repo_path.exists():
         print(f"Error: repo not found: {repo_path}", file=sys.stderr)

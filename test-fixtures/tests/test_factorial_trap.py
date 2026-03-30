@@ -1,6 +1,6 @@
 """Pre-seeded tests for TB-2 failure-to-retry validation.
 
-These tests are copied into the prompt-bench worktree BEFORE the agent runs.
+These tests are copied into the OOTestProject1 worktree BEFORE the agent runs.
 They include edge cases that first-attempt implementations commonly miss:
 - TypeError for float input (agents often only check for negative)
 - Exact error message matching (agents often use different wording)
@@ -9,7 +9,7 @@ They include edge cases that first-attempt implementations commonly miss:
 
 import pytest
 
-from prompt_bench.calculator import factorial
+from oo_test_project.calculator import factorial
 
 
 class TestFactorial:

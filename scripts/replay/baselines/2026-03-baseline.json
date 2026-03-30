@@ -30,7 +30,7 @@
         "count": 6
       },
       {
-        "file": "rm -rf /tmp/dev-loop/worktrees/dl-2zv 2>&1 && cd ~/prompt-bench && git worktree ",
+        "file": "rm -rf /tmp/dev-loop/worktrees/dl-2zv 2>&1 && cd ~/OOTestProject1 && git worktree ",
         "count": 4
       },
       {
@@ -50,7 +50,7 @@
         "count": 2
       },
       {
-        "file": "rm -rf /tmp/dev-loop/worktrees/dl-320 2>&1; cd ~/prompt-bench && git worktree pr",
+        "file": "rm -rf /tmp/dev-loop/worktrees/dl-320 2>&1; cd ~/OOTestProject1 && git worktree pr",
         "count": 2
       },
       {
@@ -78,11 +78,11 @@
         "count": 2
       },
       {
-        "file": "rm -rf /tmp/dev-loop/worktrees/dl-1w8 2>&1; cd ~/prompt-bench && git worktree pr",
+        "file": "rm -rf /tmp/dev-loop/worktrees/dl-1w8 2>&1; cd ~/OOTestProject1 && git worktree pr",
         "count": 2
       },
       {
-        "file": "rm -rf /tmp/dev-loop/worktrees/test-wt && cd ~/prompt-bench && git worktree prun",
+        "file": "rm -rf /tmp/dev-loop/worktrees/test-wt && cd ~/OOTestProject1 && git worktree prun",
         "count": 2
       },
       {
@@ -140,11 +140,11 @@
         "count": 1
       },
       {
-        "file": "cd ~/prompt-bench && git branch -D dl/dl-76a 2>&1",
+        "file": "cd ~/OOTestProject1 && git branch -D dl/dl-76a 2>&1",
         "count": 1
       },
       {
-        "file": "cd ~/prompt-bench && git branch -D dl/dl-3dl 2>&1 && git worktree prune 2>&1",
+        "file": "cd ~/OOTestProject1 && git branch -D dl/dl-3dl 2>&1 && git worktree prune 2>&1",
         "count": 1
       },
       {
@@ -164,7 +164,7 @@
         "count": 1
       },
       {
-        "file": "cd ~/prompt-bench && git branch -D dl/dl-iofy 2>&1 && git worktree prune 2>&1 &&",
+        "file": "cd ~/OOTestProject1 && git branch -D dl/dl-iofy 2>&1 && git worktree prune 2>&1 &&",
         "count": 1
       },
       {

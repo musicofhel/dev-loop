@@ -38,7 +38,7 @@ class WorkItem:
 
     @property
     def target_repo(self) -> str | None:
-        """Extract target repo from labels (e.g., 'repo:prompt-bench')."""
+        """Extract target repo from labels (e.g., 'repo:OOTestProject1')."""
         for label in self.labels:
             if label.startswith("repo:"):
                 return label.removeprefix("repo:")

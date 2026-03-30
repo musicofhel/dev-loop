@@ -3,7 +3,7 @@
 
 id: MOCK-001
 title: "Fix typo in README.md installation section"
-repo: prompt-bench
+repo: OOTestProject1
 labels: [bug]
 cost_ceiling: 1.00
 priority: medium

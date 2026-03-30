@@ -72,7 +72,7 @@ def tb1_mocks(tmp_path):
     # Sane defaults
     ns.get_issue.return_value = WorkItem(
         id="TEST-001", title="Fix bug", type="bug",
-        priority=1, labels=["bug", "repo:prompt-bench"], description="Fix it",
+        priority=1, labels=["bug", "repo:OOTestProject1"], description="Fix it",
     )
     ns.setup_worktree.return_value = {
         "success": True, "worktree_path": str(worktree_dir),
@@ -101,7 +101,7 @@ def tb1_mocks(tmp_path):
         p.stop()
 
 
-def _run_tb1(issue_id="TEST-001", repo_path="/tmp/prompt-bench"):
+def _run_tb1(issue_id="TEST-001", repo_path="/tmp/OOTestProject1"):
     from devloop.feedback.tb1_golden_path import run_tb1
     return run_tb1(issue_id, repo_path)
 
@@ -202,7 +202,7 @@ class TestTB1GoldenPath:
             title="[cascade] Adapt to upstream changes from SRC-001: update db",
             type="feature",
             priority=1,
-            labels=["cascade", "repo:prompt-bench"],
+            labels=["cascade", "repo:OOTestProject1"],
             description="Upstream issue SRC-001 changed files matching: src/db/**",
         )
         # Even though this would be flagged as ambiguous, cascade label exempts it
@@ -226,8 +226,8 @@ class TestTB1CascadeIntegration:
 
     def test_cascade_triggered_after_pr(self, tb1_mocks):
         tb1_mocks.find_cascade_targets.return_value = [{
-            "target_repo_name": "prompt-bench",
-            "target_repo_path": "/home/user/prompt-bench",
+            "target_repo_name": "OOTestProject1",
+            "target_repo_path": "/home/user/OOTestProject1",
             "matched_watches": ["src/oo_test_project/db/**"],
             "dependency_type": "data-model",
         }]

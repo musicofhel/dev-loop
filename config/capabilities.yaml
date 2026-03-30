@@ -1,7 +1,7 @@
 # Per-project capability scoping (TB-1: CLAUDE.md rules, not OpenFang)
 # See docs/layers/03-runtime.md for details
 
-prompt-bench:
+OOTestProject1:
   allowed_tools:
     - Read
     - Write
@@ -15,9 +15,8 @@ prompt-bench:
     - "*.pem"
     - "*.key"
   bash_allowlist:
-    - "npm test"
-    - "npm run lint"
-    - "npm run build"
+    - "uv run pytest"
+    - "uv run python"
     - "git status"
     - "git diff"
     - "git add"

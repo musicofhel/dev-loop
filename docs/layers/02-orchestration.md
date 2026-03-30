@@ -112,7 +112,7 @@ span: orchestration.setup_worktree
 attributes:
   orchestration.operation: setup_worktree
   issue.id: dl-1kz
-  worktree.repo_path: /home/user/prompt-bench
+  worktree.repo_path: /home/user/OOTestProject1
   worktree.path: /tmp/dev-loop/worktrees/dl-1kz
   worktree.branch: dl/dl-1kz
 parent: intake.issue_pickup (trace_id from intake)

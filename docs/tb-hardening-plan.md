@@ -59,7 +59,7 @@ Organized as tracer-bullet slices — each slice is testable e2e before moving o
 - `pipeline.py _extract_security_findings`: Log warning if `gate_3_security` not found when expected
 - `pipeline.py`: Check Gate 3 `skipped` field in retry — `vuln_fixed=False` if Gate 3 was skipped
 
-**Validation:** `just tb3 <issue> ~/prompt-bench` — seeded mode must show `vulnerability_fixed: true` with non-empty `security_findings` and `cwe_ids`. Unit test: mock git add failure → seed returns False → pipeline aborts.
+**Validation:** `just tb3 <issue> ~/OOTestProject1` — seeded mode must show `vulnerability_fixed: true` with non-empty `security_findings` and `cwe_ids`. Unit test: mock git add failure → seed returns False → pipeline aborts.
 
 ---
 

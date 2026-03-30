@@ -274,7 +274,7 @@ class TestCreateCascadeIssue:
         result = _create_cascade_issue(
             source_issue_id="dl-src",
             source_title="Update API",
-            target_repo_name="prompt-bench",
+            target_repo_name="OOTestProject1",
             matched_watches=["src/oo_test_project/db/**"],
             dependency_type="data-model",
         )
@@ -291,7 +291,7 @@ class TestCreateCascadeIssue:
         assert "--labels" in args
         labels_idx = args.index("--labels")
         assert "cascade" in args[labels_idx + 1]
-        assert "repo:prompt-bench" in args[labels_idx + 1]
+        assert "repo:OOTestProject1" in args[labels_idx + 1]
         assert "--silent" in args
 
     @patch("devloop.feedback.pipeline.subprocess.run")
@@ -481,20 +481,20 @@ class TestResolveRepoPath:
         dep_file = tmp_path / "dependencies.yaml"
         dep_file.write_text(
             "repo_paths:\n"
-            "  prompt-bench: /home/user/prompt-bench\n"
+            "  OOTestProject1: /home/user/OOTestProject1\n"
             "dependencies: []\n"
         )
         from devloop.feedback.tb5_cascade import _resolve_repo_path
 
         with patch("devloop.feedback.tb5_cascade._CONFIG_DIR", tmp_path):
-            assert _resolve_repo_path("prompt-bench") == "/home/user/prompt-bench"
+            assert _resolve_repo_path("OOTestProject1") == "/home/user/OOTestProject1"
 
     def test_returns_none_for_unknown_repo(self, tmp_path):
         """Returns None for a repo name not in repo_paths."""
         dep_file = tmp_path / "dependencies.yaml"
         dep_file.write_text(
             "repo_paths:\n"
-            "  prompt-bench: /home/user/prompt-bench\n"
+            "  OOTestProject1: /home/user/OOTestProject1\n"
             "dependencies: []\n"
         )
         from devloop.feedback.tb5_cascade import _resolve_repo_path
@@ -536,15 +536,15 @@ class TestFindCascadeTargets:
 
         mock_changed.return_value = ["src/oo_test_project/db/users.py"]
         mock_deps.return_value = [
-            {"source": "OOTestProject1", "target": "prompt-bench",
+            {"source": "OOTestProject1", "target": "OOTestProject1",
              "watches": ["src/oo_test_project/db/**"], "type": "data-model"},
         ]
-        mock_resolve.return_value = "/home/user/prompt-bench"
+        mock_resolve.return_value = "/home/user/OOTestProject1"
 
         targets = find_cascade_targets("/home/user/OOTestProject1", "dl-test")
         assert len(targets) == 1
-        assert targets[0]["target_repo_name"] == "prompt-bench"
-        assert targets[0]["target_repo_path"] == "/home/user/prompt-bench"
+        assert targets[0]["target_repo_name"] == "OOTestProject1"
+        assert targets[0]["target_repo_path"] == "/home/user/OOTestProject1"
         assert targets[0]["matched_watches"] == ["src/oo_test_project/db/**"]
 
     @patch("devloop.feedback.tb5_cascade._get_changed_files")
@@ -564,7 +564,7 @@ class TestFindCascadeTargets:
 
         mock_changed.return_value = ["docs/README.md"]
         mock_deps.return_value = [
-            {"source": "OOTestProject1", "target": "prompt-bench",
+            {"source": "OOTestProject1", "target": "OOTestProject1",
              "watches": ["src/oo_test_project/db/**"], "type": "data-model"},
         ]
         assert find_cascade_targets("/home/user/OOTestProject1", "dl-test") == []
@@ -578,7 +578,7 @@ class TestFindCascadeTargets:
 
         mock_changed.return_value = ["src/oo_test_project/db/users.py"]
         mock_deps.return_value = [
-            {"source": "OOTestProject1", "target": "prompt-bench",
+            {"source": "OOTestProject1", "target": "OOTestProject1",
              "watches": ["src/oo_test_project/db/**"], "type": "data-model"},
         ]
         mock_resolve.return_value = None  # path not configured

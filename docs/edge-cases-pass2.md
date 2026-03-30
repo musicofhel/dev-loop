@@ -20,7 +20,7 @@ The orchestration layer should generate a "scope hint" from the issue — e.g., 
 
 **Also:** Headroom (0.88 in graph) is a transparent proxy that compresses LLM context by 47-92% (strips boilerplate from tool outputs, DB queries, file reads). This belongs in the runtime layer between agent and LLM API, alongside the token proxy.
 
-**TB-1 action:** Start simple (prompt-bench is small). Add scope hints for TB-5 when targeting larger target repos.
+**TB-1 action:** Start simple (OOTestProject1 is small). Add scope hints for TB-5 when targeting larger target repos.
 
 ### 27. Context Compression Missing from Stack
 **Problem:** We have a token *proxy* (metering) but no token *optimizer*. Every file read, every tool output goes to the LLM at full size. This wastes money and eats context window.
@@ -67,7 +67,7 @@ This is "in-process backpressure" vs "post-process gates." Both are needed, but 
 
 This requires checking out main briefly before the agent's branch, or caching recent main test results.
 
-**TB-1 action:** For prompt-bench (small, presumably stable tests), this is low risk. Must be in place before TB-5 targets repos with complex test suites.
+**TB-1 action:** For OOTestProject1 (small, presumably stable tests), this is low risk. Must be in place before TB-5 targets repos with complex test suites.
 
 ---
 
@@ -139,7 +139,7 @@ migrations:
     - INSERT
 ```
 
-**TB-1 action:** Not relevant for prompt-bench or OOTestProject1 (no migrations). Deferred until a repo with a migration framework is targeted.
+**TB-1 action:** Not relevant for OOTestProject1 (no migrations). Deferred until a repo with a migration framework is targeted.
 
 ### 34. Lock File Inconsistency
 **Problem:** Agent updates `package.json` but doesn't run `npm install`, leaving `package-lock.json` out of sync. Or agent runs `npm install` which pulls in unrelated dependency updates.

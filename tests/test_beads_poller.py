@@ -20,7 +20,7 @@ SAMPLE_ISSUES = [
         "title": "Fix login bug",
         "type": "bug",
         "priority": 1,
-        "labels": ["bug", "repo:prompt-bench"],
+        "labels": ["bug", "repo:OOTestProject1"],
         "description": "Login form crashes on empty password",
         "parent": None,
     },
@@ -68,7 +68,7 @@ class TestPollReady:
         assert items[0].title == "Fix login bug"
         assert items[0].type == "bug"
         assert items[0].priority == 1
-        assert items[0].labels == ["bug", "repo:prompt-bench"]
+        assert items[0].labels == ["bug", "repo:OOTestProject1"]
         assert items[0].description == "Login form crashes on empty password"
         assert items[1].id == "ISSUE-2"
         assert items[1].parent == "EPIC-1"
@@ -229,9 +229,9 @@ class TestWorkItemProperties:
             title="Test",
             type="task",
             priority=2,
-            labels=["bug", "repo:prompt-bench"],
+            labels=["bug", "repo:OOTestProject1"],
         )
-        assert item.target_repo == "prompt-bench"
+        assert item.target_repo == "OOTestProject1"
 
     def test_target_repo_without_repo_label(self):
         """WorkItem.target_repo returns None when no repo: label exists."""
@@ -306,7 +306,7 @@ class TestWorkItemProperties:
             title="Test",
             type="task",
             priority=2,
-            labels=["repo:prompt-bench", "urgent"],
+            labels=["repo:OOTestProject1", "urgent"],
         )
         assert item.persona is None
 
@@ -341,7 +341,7 @@ class TestGetIssue:
                 "title": "Fix auth bug",
                 "issue_type": "bug",
                 "priority": 1,
-                "labels": ["bug", "repo:prompt-bench"],
+                "labels": ["bug", "repo:OOTestProject1"],
                 "description": "Auth is broken",
             }]),
             stderr="",
@@ -350,7 +350,7 @@ class TestGetIssue:
         assert item is not None
         assert item.id == "dl-abc"
         assert item.title == "Fix auth bug"
-        assert item.labels == ["bug", "repo:prompt-bench"]
+        assert item.labels == ["bug", "repo:OOTestProject1"]
         assert item.type == "bug"
         assert item.priority == 1
 

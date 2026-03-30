@@ -64,7 +64,7 @@ blocked:
 
 # TB-1: Ticket-to-PR (golden path)
 # Usage: just tb1 <issue_id> <repo_path>
-# Example: just tb1 dl-abc /home/musicofhel/prompt-bench
+# Example: just tb1 dl-abc /home/musicofhel/OOTestProject1
 tb1 ISSUE_ID REPO_PATH:
     @echo "Running TB-1: Ticket-to-PR"
     @echo "Issue: {{ISSUE_ID}} | Repo: {{REPO_PATH}}"
@@ -114,7 +114,7 @@ tb4-turns ISSUE_ID REPO_PATH MAX_TURNS:
 
 # TB-5: Cross-repo cascade (multi-project path)
 # Usage: just tb5 <source_issue_id> <source_repo_path> <target_repo_path>
-# Example: just tb5 dl-abc ~/OOTestProject1 ~/prompt-bench
+# TB-5 dormant — needs second test repo for cascade
 tb5 SOURCE_ISSUE SOURCE_REPO TARGET_REPO:
     @echo "Running TB-5: Cross-Repo Cascade"
     @echo "Source: {{SOURCE_ISSUE}} | {{SOURCE_REPO}} → {{TARGET_REPO}}"
@@ -122,7 +122,7 @@ tb5 SOURCE_ISSUE SOURCE_REPO TARGET_REPO:
 
 # TB-6: Session replay (observability path)
 # Usage: just tb6 <issue_id> <repo_path>
-# Example: just tb6 dl-abc ~/prompt-bench
+# Example: just tb6 dl-abc ~/OOTestProject1
 tb6 ISSUE_ID REPO_PATH:
     @echo "Running TB-6: Session Replay Debug"
     @echo "Issue: {{ISSUE_ID}} | Repo: {{REPO_PATH}}"
@@ -136,7 +136,7 @@ tb6-replay SESSION_ID:
 
 # TB-7: LLMOps A/B comparison (DSPy optimized vs CLI baseline)
 # Usage: just tb7 <repo_path>
-# Example: just tb7 ~/prompt-bench
+# Example: just tb7 ~/OOTestProject1
 tb7 REPO_PATH:
     @echo "Running TB-7: LLMOps A/B Comparison"
     @echo "Repo: {{REPO_PATH}}"

@@ -2,12 +2,6 @@
 # See docs/layers/06-feedback-loop.md Channel 4
 
 repo_paths:
-  prompt-bench: /home/musicofhel/prompt-bench
   OOTestProject1: /home/musicofhel/OOTestProject1
 
-dependencies:
-  - source: OOTestProject1
-    target: prompt-bench
-    watches:
-      - "src/oo_test_project/db/**"
-    type: data-model
+dependencies: []

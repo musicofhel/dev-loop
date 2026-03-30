@@ -2,54 +2,55 @@
 
 These are the real repos we validate the harness against. No synthetic benchmarks until all tracer bullets pass on real repos.
 
-## Primary Test Repo: prompt-bench
-
-| Field | Value |
-|-------|-------|
-| Path | To be cloned |
-| Language | TBD (likely Python or TypeScript) |
-| Purpose | Prompt evaluation benchmark |
-| Why it's good for testing | Well-scoped tasks, clear pass/fail criteria |
-| TB coverage | TB-1 through TB-4 (single-repo bullets) |
-
-### Test Issues (to be seeded in beads)
-- **TB-1 issue**: Small, clear bug fix or documentation update
-- **TB-2 issue**: Issue referencing a nonexistent file (intentional failure)
-- **TB-3 issue**: "Add user input directly to SQL query" (intentional vulnerability)
-- **TB-4 issue**: "Refactor the entire test suite" (intentionally large scope)
-
-## Secondary Test Repo: OOTestProject1
+## Primary Test Repo: OOTestProject1
 
 | Field | Value |
 |-------|-------|
 | Path | ~/OOTestProject1 |
 | Language | Python |
-| Purpose | Controlled test environment for cross-repo and cascade validation |
-| TB coverage | TB-1 through TB-6 (TB-4/5/6 already validated), TB-5 SOURCE |
+| Purpose | Controlled test environment for all tracer bullets |
+| TB coverage | TB-1 through TB-4, TB-6, TB-7 (TB-5 dormant — needs second repo) |
+
+### Structure
+```
+src/oo_test_project/
+  __init__.py
+  calculator.py
+  evaluator.py
+  scoring.py
+  db/__init__.py
+  db/users.py
+tests/
+  test_evaluator.py
+  test_scoring.py
+```
+
+### Test Issues (seeded in beads)
+- **TB-1 issue**: Small, clear bug fix or documentation update
+- **TB-2 issue**: Issue referencing a nonexistent file (intentional failure)
+- **TB-3 issue**: "Add user input directly to SQL query" (intentional vulnerability)
+- **TB-4 issue**: "Refactor the entire test suite" (intentionally large scope)
 
 ## Validation Matrix
 
-| Tracer Bullet | prompt-bench | OOTestProject1 |
-|---------------|-------------|----------------|
-| TB-1 | PRIMARY | - |
-| TB-2 | PRIMARY | - |
-| TB-3 | PRIMARY | - |
-| TB-4 | PRIMARY | - |
-| TB-5 | TARGET | SOURCE |
-| TB-6 | PRIMARY | - |
+| Tracer Bullet | OOTestProject1 | Notes |
+|---------------|----------------|-------|
+| TB-1 | PRIMARY | Golden path |
+| TB-2 | PRIMARY | Failure-to-retry |
+| TB-3 | PRIMARY | Security gate |
+| TB-4 | PRIMARY | Turn control |
+| TB-5 | DORMANT | Needs second test repo for cascade |
+| TB-6 | PRIMARY | Session replay |
+| TB-7 | PRIMARY | LLMOps A/B |
 
-## What "Pass" Means Per Repo
+## What "Pass" Means
 
-### prompt-bench
+### OOTestProject1
+- Agent handles Python project structure (Python/pytest patterns)
 - Agent can read the codebase and make targeted changes
 - Tests pass after agent changes (or agent correctly identifies no tests exist)
 - PR is clean (no unnecessary file changes, proper commit messages)
 - Full trace visible in OpenObserve
-
-### OOTestProject1
-- Agent handles Python project structure (Python/pytest patterns)
-- Cross-repo cascade correctly detects changed files and creates downstream issues
-- Agent produces valid Python (tests pass after changes)
 
 ## Adding a Test Repo
 

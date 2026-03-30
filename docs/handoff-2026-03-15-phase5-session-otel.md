@@ -1,4 +1,4 @@
-> Note: omniswipe-backend was the secondary test target during this period. It has since been replaced by OOTestProject1.
+> Note: prompt-bench and omniswipe-backend were test targets during this period. They have been consolidated into OOTestProject1.
 
 # Handoff: Phase 5 — Session Registration + OTel
 

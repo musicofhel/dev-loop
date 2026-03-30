@@ -6,7 +6,7 @@ compared with CLI baseline, difference measurable.
 Usage::
 
     from devloop.feedback.tb7_llmops import run_tb7
-    result = run_tb7(repo_path="/home/user/prompt-bench")
+    result = run_tb7(repo_path="/home/user/OOTestProject1")
 """
 
 from __future__ import annotations

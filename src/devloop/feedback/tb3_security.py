@@ -70,7 +70,7 @@ def _seed_vulnerable_code(worktree_path: str) -> bool:
         logger.warning("TB-3 vulnerable code fixture not found: %s", src)
         return False
 
-    # Determine the package directory (e.g. src/prompt_bench/)
+    # Determine the package directory (e.g. src/oo_test_project/)
     src_dir = Path(worktree_path) / "src"
     if not src_dir.is_dir():
         src_dir.mkdir(parents=True, exist_ok=True)
@@ -146,7 +146,7 @@ def _make_forced_security_failure() -> dict:
                             "Possible SQL injection vector through string-based "
                             "query construction. [CWE-89]"
                         ),
-                        file="src/prompt_bench/search.py",
+                        file="src/oo_test_project/search.py",
                         line=25,
                         rule="B608",
                         cwe="CWE-89",
@@ -157,7 +157,7 @@ def _make_forced_security_failure() -> dict:
                             "Possible SQL injection vector through string-based "
                             "query construction. [CWE-89]"
                         ),
-                        file="src/prompt_bench/search.py",
+                        file="src/oo_test_project/search.py",
                         line=42,
                         rule="B608",
                         cwe="CWE-89",

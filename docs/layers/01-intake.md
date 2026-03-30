@@ -49,7 +49,7 @@ Every issue pickup emits a span:
 span: intake.issue_pickup
 attributes:
   issue.id: dl-1kz
-  issue.repo: prompt-bench
+  issue.repo: OOTestProject1
   issue.labels: [bug, backend]
   issue.priority: 0
 ```
@@ -64,7 +64,7 @@ This span becomes the root of the full trace for this work item.
 - **TB-6**: Same intake, full session captured downstream
 
 ### Escape Hatches
-- `just run-direct --repo prompt-bench --task "fix the typo in README"` — bypass beads entirely for quick one-offs
+- `just run-direct --repo OOTestProject1 --task "fix the typo in README"` — bypass beads entirely for quick one-offs
 - Mock intake mode: `just tb1-mock` loads from YAML fixture, creates beads issue, runs pipeline
 
 ### Open Questions

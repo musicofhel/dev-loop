@@ -5,11 +5,11 @@
 
 id: MOCK-TB2
 title: "Add factorial function with edge case handling"
-repo: prompt-bench
+repo: OOTestProject1
 labels: [feature]
 priority: high
 description: |
-  Add a `factorial` function to `src/prompt_bench/calculator.py`.
+  Add a `factorial` function to `src/oo_test_project/calculator.py`.
 
   Requirements:
   - factorial(0) == 1

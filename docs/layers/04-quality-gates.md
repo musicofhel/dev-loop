@@ -237,7 +237,7 @@ parent: runtime.output
 ### Gate Configuration Per Project
 
 ```yaml
-# config/projects/prompt-bench.yaml
+# config/projects/OOTestProject1.yaml
 quality_gates:
   sanity:
     enabled: true
