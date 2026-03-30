@@ -101,6 +101,7 @@ def _unclaim_issue(issue_id: str, repo_path: str | None = None) -> None:
     Called in finally blocks when a pipeline fails without completing
     successfully, so the issue doesn't stay stuck as in_progress.
     """
+    cwd = repo_path or _DEVLOOP_ROOT
     try:
         subprocess.run(
             ["br", "update", issue_id, "--status", "open"],
@@ -108,7 +109,7 @@ def _unclaim_issue(issue_id: str, repo_path: str | None = None) -> None:
             text=True,
             check=False,
             timeout=30,
-            cwd=_DEVLOOP_ROOT,
+            cwd=cwd,
         )
         logger.info("Unclaimed issue %s (set to open)", issue_id)
     except Exception:

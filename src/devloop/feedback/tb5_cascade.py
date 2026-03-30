@@ -203,6 +203,7 @@ def _create_cascade_issue(
     target_repo_name: str,
     matched_watches: list[str],
     dependency_type: str,
+    changed_files: list[str] | None = None,
     repo_path: str | None = None,
 ) -> str:
     """Create a cascade issue in beads for the target repo.
@@ -214,10 +215,27 @@ def _create_cascade_issue(
     Returns the new issue ID.
     """
     title = f"[cascade] Adapt to upstream changes from {source_issue_id}: {source_title}"
+
+    # Build a rich description that satisfies the ambiguity gate
+    file_list = ""
+    if changed_files:
+        file_list = "\n".join(f"  - {f}" for f in changed_files)
+    else:
+        file_list = "  (review the source diff for specific changes)"
+
     description = (
-        f"Upstream issue {source_issue_id} changed files matching: {', '.join(matched_watches)}.\n"
-        f"Dependency type: {dependency_type}.\n"
-        f"Review and adapt {target_repo_name} as needed."
+        f"Upstream issue {source_issue_id} ({source_title}) changed files matching watch patterns:\n"
+        f"  {', '.join(matched_watches)}\n\n"
+        f"Dependency type: {dependency_type}.\n\n"
+        f"Changed files in source repo:\n"
+        f"{file_list}\n\n"
+        f"Action required:\n"
+        f"- Review {target_repo_name}'s code that depends on the upstream schema/API\n"
+        f"- Update validators, models, or data structures as needed\n"
+        f"- Run the test suite and fix any failures caused by upstream changes\n\n"
+        f"Acceptance criteria:\n"
+        f"- All existing tests pass after adapting to upstream changes\n"
+        f"- No schema mismatches between upstream and downstream models"
     )
     labels = f"cascade,repo:{target_repo_name}"
 
@@ -497,6 +515,7 @@ def run_tb5(source_issue_id: str, source_repo_path: str, target_repo_path: str) 
                     target_repo_name=target_repo_name,
                     matched_watches=matched_watches,
                     dependency_type=dependency_type or "unknown",
+                    changed_files=changed_files,
                     repo_path=target_repo_path,
                 )
                 phase_span.set_attribute("tb5.target_issue_id", target_issue_id)

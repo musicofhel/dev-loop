@@ -72,6 +72,7 @@ def claim_issue(issue_id: str, repo_path: str | None = None) -> bool:
     Returns True if this call claimed the issue (status transitioned),
     False if it was already claimed or the command failed.
     """
+    cwd = repo_path or _DEVLOOP_ROOT
     try:
         result = subprocess.run(
             ["br", "update", issue_id, "--claim"],
@@ -79,7 +80,7 @@ def claim_issue(issue_id: str, repo_path: str | None = None) -> bool:
             text=True,
             check=False,
             timeout=30,
-            cwd=_DEVLOOP_ROOT,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired:
         logger.error("Timed out claiming issue %s", issue_id)
@@ -113,6 +114,7 @@ def get_issue(issue_id: str, repo_path: str | None = None) -> WorkItem | None:
     when an issue isn't found in the ``poll_ready()`` results (e.g. because
     it was already claimed or is in a non-ready state).
     """
+    cwd = repo_path or _DEVLOOP_ROOT
     try:
         result = subprocess.run(
             ["br", "show", issue_id, "--json"],
@@ -120,7 +122,7 @@ def get_issue(issue_id: str, repo_path: str | None = None) -> WorkItem | None:
             text=True,
             check=False,
             timeout=30,
-            cwd=_DEVLOOP_ROOT,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired:
         logger.error("Timed out fetching issue %s", issue_id)
@@ -171,6 +173,7 @@ def poll_ready(*, repo_path: str | None = None, fail_on_missing: bool = False) -
         if fail_on_missing:
             raise BeadsUnavailable(msg)
         return []
+    cwd = repo_path or _DEVLOOP_ROOT
     try:
         result = subprocess.run(
             ["br", "ready", "--json"],
@@ -178,7 +181,7 @@ def poll_ready(*, repo_path: str | None = None, fail_on_missing: bool = False) -
             text=True,
             check=False,
             timeout=30,
-            cwd=_DEVLOOP_ROOT,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired:
         logger.error("Timed out polling br ready")
