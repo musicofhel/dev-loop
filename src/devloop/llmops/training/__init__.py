@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import shutil
@@ -18,6 +19,79 @@ def _default_sessions_dir() -> str:
     cwd = os.getcwd()
     mangled = cwd.replace("/", "-").lstrip("-")
     return os.path.expanduser(f"~/.claude/projects/-{mangled}/")
+
+
+def _default_pipeline_sessions_dir() -> str:
+    """Dev-loop pipeline agent sessions directory.
+
+    TB runs store agent sessions as .ndjson files with .meta.json sidecars
+    at ``~/.local/share/dev-loop/sessions/``.
+    """
+    return os.path.expanduser("~/.local/share/dev-loop/sessions/")
+
+
+def _collect_session_files(
+    sessions_dir: str | None = None,
+    max_files: int = 200,
+) -> list[str]:
+    """Collect session files from Claude Code logs AND pipeline sessions.
+
+    When *sessions_dir* is provided, searches that single directory for both
+    ``.jsonl`` and ``.ndjson`` files.  When ``None``, searches both the
+    default Claude Code sessions dir and the pipeline sessions dir.
+    """
+    if sessions_dir is not None:
+        dirs = [sessions_dir]
+    else:
+        dirs = [_default_sessions_dir(), _default_pipeline_sessions_dir()]
+
+    files: list[str] = []
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        files.extend(glob.glob(os.path.join(d, "*.jsonl")))
+        files.extend(glob.glob(os.path.join(d, "*.ndjson")))
+
+    return sorted(set(files))[:max_files]
+
+
+def _load_session_events(fpath: str) -> list[dict]:
+    """Load events from a ``.jsonl`` or ``.ndjson`` session file.
+
+    Handles two formats:
+    - ``.jsonl``: one JSON object per line (Claude Code conversation logs).
+    - ``.ndjson``: a single JSON array containing all events on one line
+      (pipeline agent sessions).
+    """
+    events: list[dict] = []
+    with open(fpath) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, list):
+                # ndjson: single array of event dicts
+                events.extend(e for e in parsed if isinstance(e, dict))
+            elif isinstance(parsed, dict):
+                events.append(parsed)
+    return events
+
+
+def _is_external_user(evt: dict) -> bool:
+    """Check if an event is from an external/human user.
+
+    Claude Code ``.jsonl`` events use ``userType: "external"``.
+    Pipeline ``.ndjson`` events use ``type: "user"`` without ``userType``.
+    """
+    if evt.get("userType") == "external":
+        return True
+    if evt.get("type") == "user" and "userType" not in evt:
+        return True
+    return False
 
 
 def safe_write_jsonl(

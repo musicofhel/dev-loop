@@ -16,6 +16,12 @@ from pathlib import Path
 
 from opentelemetry import trace
 
+from devloop.llmops.training import (
+    _collect_session_files,
+    _is_external_user,
+    _load_session_events,
+)
+
 tracer = trace.get_tracer("llmops.training", "0.1.0")
 
 
@@ -131,7 +137,7 @@ def _extract_persona_data(events: list[dict]) -> dict | None:
                     break
 
         # Capture first substantial human message as task description
-        if not issue_description and evt.get("userType") == "external" and len(content) > 30:
+        if not issue_description and _is_external_user(evt) and len(content) > 30:
             issue_description = content[:2000]
 
         # Detect outcome
@@ -169,11 +175,6 @@ def export_personas(
     """
     from devloop.llmops.training import safe_write_jsonl
 
-    if sessions_dir is None:
-        from devloop.llmops.training import _default_sessions_dir
-
-        sessions_dir = _default_sessions_dir()
-
     if output_path is None:
         output_path = os.path.expanduser(
             "~/.local/share/dev-loop/llmops/training/persona_select.jsonl"
@@ -185,27 +186,66 @@ def export_personas(
     ) as span:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        files = sorted(glob.glob(os.path.join(sessions_dir, "*.jsonl")))[:max_sessions]
+        files = _collect_session_files(sessions_dir, max_sessions)
         examples: list[dict] = []
 
         for fpath in files:
-            events = []
-            with open(fpath) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        events.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
+            events = _load_session_events(fpath)
+            stem = Path(fpath).stem
 
+            # For pipeline sessions, try the .meta.json sidecar first —
+            # it has authoritative persona/success data from orchestration.
+            meta_path = re.sub(r"\.(ndjson|jsonl)$", ".meta.json", fpath)
+            meta: dict | None = None
+            if os.path.isfile(meta_path):
+                try:
+                    with open(meta_path) as mf:
+                        meta = json.load(mf)
+                except (json.JSONDecodeError, OSError):
+                    meta = None
+
+            if meta and meta.get("persona"):
+                # Build example directly from structured metadata.
+                issue_desc = ""
+                for evt in events:
+                    msg = evt.get("message", {})
+                    content = msg.get("content", "")
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                content = block.get("text", "")
+                                break
+                    if isinstance(content, str) and _is_external_user(evt) and len(content) > 30:
+                        issue_desc = content[:2000]
+                        break
+
+                repo_type = _detect_repo_type(events)
+                example = {
+                    "inputs": {
+                        "issue_labels": "",
+                        "issue_description": issue_desc or meta.get("issue_id", ""),
+                        "repo_type": repo_type,
+                    },
+                    "outputs": {
+                        "persona_id": meta["persona"],
+                        "custom_guidelines": "",
+                        "task_succeeded": str(meta.get("success", False)),
+                    },
+                    "metadata": {
+                        "session_id": stem,
+                        "source": "persona_meta",
+                    },
+                }
+                examples.append(example)
+                continue
+
+            # Fall back to parsing persona from conversation text.
             example = _extract_persona_data(events)
             if example is None:
                 continue
 
             example["metadata"] = {
-                "session_id": os.path.basename(fpath).replace(".jsonl", ""),
+                "session_id": stem,
                 "source": "persona_session",
             }
             examples.append(example)
@@ -219,13 +259,9 @@ def export_personas(
 if __name__ == "__main__":
     import sys
 
-    from devloop.llmops.training import _default_sessions_dir
-
-    sessions_dir = _default_sessions_dir()
-    if not os.path.isdir(sessions_dir):
-        print(f"WARNING: Sessions dir not found: {sessions_dir}", file=sys.stderr)
-    elif not glob.glob(os.path.join(sessions_dir, "*.jsonl")):
-        print(f"WARNING: No .jsonl files in {sessions_dir}", file=sys.stderr)
+    files = _collect_session_files()
+    if not files:
+        print("WARNING: No session files found", file=sys.stderr)
 
     force = "--force" in sys.argv
     count = export_personas(force=force)

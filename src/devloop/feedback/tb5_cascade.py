@@ -178,7 +178,7 @@ def _get_source_issue_details(issue_id: str, repo_path: str | None = None) -> di
         text=True,
         check=False,
         timeout=30,
-        cwd=_DEVLOOP_ROOT,
+        cwd=repo_path or _DEVLOOP_ROOT,
     )
     if result.returncode != 0:
         error_msg = result.stderr.strip() or f"br show failed with exit code {result.returncode}"
@@ -222,6 +222,7 @@ def _create_cascade_issue(
     labels = f"cascade,repo:{target_repo_name}"
 
     # Try with --parent first (works when source+target share a beads workspace)
+    cwd = repo_path or _DEVLOOP_ROOT
     cmd = [
         "br", "create", title,
         "--description", description,
@@ -235,7 +236,7 @@ def _create_cascade_issue(
         text=True,
         check=False,
         timeout=30,
-        cwd=_DEVLOOP_ROOT,
+        cwd=cwd,
     )
 
     # If --parent fails (cross-repo: parent issue not in target beads), retry without it
@@ -256,7 +257,7 @@ def _create_cascade_issue(
             text=True,
             check=False,
             timeout=30,
-            cwd=_DEVLOOP_ROOT,
+            cwd=cwd,
         )
 
     if result.returncode != 0:
@@ -303,7 +304,7 @@ def _report_cascade_outcome(
         text=True,
         check=False,
         timeout=30,
-        cwd=_DEVLOOP_ROOT,
+        cwd=repo_path or _DEVLOOP_ROOT,
     )
     if result.returncode != 0:
         logger.warning(

@@ -16,6 +16,12 @@ from pathlib import Path
 
 from opentelemetry import trace
 
+from devloop.llmops.training import (
+    _collect_session_files,
+    _is_external_user,
+    _load_session_events,
+)
+
 tracer = trace.get_tracer("llmops.training", "0.1.0")
 
 
@@ -70,7 +76,7 @@ def _extract_retry_data(events: list[dict]) -> list[dict]:
             continue
 
         # Capture original task from first human message
-        if not original_task and evt.get("userType") == "external":
+        if not original_task and _is_external_user(evt):
             if not _is_retry_prompt(content) and len(content) > 20:
                 original_task = content[:2000]
 
@@ -146,11 +152,6 @@ def export_retries(
     """
     from devloop.llmops.training import safe_write_jsonl
 
-    if sessions_dir is None:
-        from devloop.llmops.training import _default_sessions_dir
-
-        sessions_dir = _default_sessions_dir()
-
     if output_path is None:
         output_path = os.path.expanduser(
             "~/.local/share/dev-loop/llmops/training/retry_prompt.jsonl"
@@ -162,25 +163,14 @@ def export_retries(
     ) as span:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        files = sorted(glob.glob(os.path.join(sessions_dir, "*.jsonl")))[:max_sessions]
+        files = _collect_session_files(sessions_dir, max_sessions)
         examples: list[dict] = []
 
         for fpath in files:
-            events = []
-            with open(fpath) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        events.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
+            events = _load_session_events(fpath)
 
             for example in _extract_retry_data(events):
-                example["metadata"]["session_id"] = (
-                    os.path.basename(fpath).replace(".jsonl", "")
-                )
+                example["metadata"]["session_id"] = Path(fpath).stem
                 example["metadata"]["source"] = "retry_session"
                 examples.append(example)
 
@@ -193,13 +183,9 @@ def export_retries(
 if __name__ == "__main__":
     import sys
 
-    from devloop.llmops.training import _default_sessions_dir
-
-    sessions_dir = _default_sessions_dir()
-    if not os.path.isdir(sessions_dir):
-        print(f"WARNING: Sessions dir not found: {sessions_dir}", file=sys.stderr)
-    elif not glob.glob(os.path.join(sessions_dir, "*.jsonl")):
-        print(f"WARNING: No .jsonl files in {sessions_dir}", file=sys.stderr)
+    files = _collect_session_files()
+    if not files:
+        print("WARNING: No session files found", file=sys.stderr)
 
     force = "--force" in sys.argv
     count = export_retries(force=force)

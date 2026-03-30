@@ -659,3 +659,167 @@ class TestDefaultSessionsDir:
         assert result_a != result_b
         assert "-home-alice-project-a" in result_a
         assert "-home-bob-project-b" in result_b
+
+
+# ---------------------------------------------------------------------------
+# Pipeline sessions dir + collect + load helpers
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultPipelineSessionsDir:
+    """Tests for _default_pipeline_sessions_dir helper."""
+
+    def test_returns_xdg_data_home_path(self):
+        """Pipeline sessions dir is under ~/.local/share/dev-loop/sessions/."""
+        from devloop.llmops.training import _default_pipeline_sessions_dir
+
+        result = _default_pipeline_sessions_dir()
+        assert result.endswith("/dev-loop/sessions/")
+        assert ".local/share" in result
+
+
+class TestCollectSessionFiles:
+    """Tests for _collect_session_files helper."""
+
+    def test_collects_both_extensions(self, tmp_path):
+        """Finds both .jsonl and .ndjson files in a single directory."""
+        from devloop.llmops.training import _collect_session_files
+
+        (tmp_path / "a.jsonl").write_text("{}\n")
+        (tmp_path / "b.ndjson").write_text("[{}]\n")
+        (tmp_path / "c.txt").write_text("ignored\n")
+
+        files = _collect_session_files(str(tmp_path))
+        names = [os.path.basename(f) for f in files]
+        assert "a.jsonl" in names
+        assert "b.ndjson" in names
+        assert "c.txt" not in names
+
+    def test_collects_from_both_default_dirs(self, tmp_path, monkeypatch):
+        """When sessions_dir is None, searches both default dirs."""
+        from devloop.llmops.training import _collect_session_files
+
+        claude_dir = tmp_path / "claude"
+        pipeline_dir = tmp_path / "pipeline"
+        claude_dir.mkdir()
+        pipeline_dir.mkdir()
+
+        (claude_dir / "session1.jsonl").write_text("{}\n")
+        (pipeline_dir / "session2.ndjson").write_text("[{}]\n")
+
+        monkeypatch.setattr(
+            "devloop.llmops.training._default_sessions_dir",
+            lambda: str(claude_dir) + "/",
+        )
+        monkeypatch.setattr(
+            "devloop.llmops.training._default_pipeline_sessions_dir",
+            lambda: str(pipeline_dir) + "/",
+        )
+
+        files = _collect_session_files(None)
+        names = [os.path.basename(f) for f in files]
+        assert "session1.jsonl" in names
+        assert "session2.ndjson" in names
+
+    def test_max_files_limit(self, tmp_path):
+        """Respects max_files truncation."""
+        from devloop.llmops.training import _collect_session_files
+
+        for i in range(10):
+            (tmp_path / f"s{i:02d}.jsonl").write_text("{}\n")
+
+        files = _collect_session_files(str(tmp_path), max_files=3)
+        assert len(files) == 3
+
+    def test_missing_dir_returns_empty(self, tmp_path):
+        """Non-existent directory is silently skipped."""
+        from devloop.llmops.training import _collect_session_files
+
+        files = _collect_session_files(str(tmp_path / "does-not-exist"))
+        assert files == []
+
+
+class TestLoadSessionEvents:
+    """Tests for _load_session_events helper."""
+
+    def test_loads_jsonl_format(self, tmp_path):
+        """One JSON object per line (Claude Code format)."""
+        from devloop.llmops.training import _load_session_events
+
+        path = tmp_path / "session.jsonl"
+        path.write_text(
+            '{"type": "system", "message": {"content": "init"}}\n'
+            '{"userType": "external", "message": {"content": "hello"}}\n'
+        )
+        events = _load_session_events(str(path))
+        assert len(events) == 2
+        assert events[0]["type"] == "system"
+        assert events[1]["userType"] == "external"
+
+    def test_loads_ndjson_array_format(self, tmp_path):
+        """Single JSON array on one line (pipeline format)."""
+        from devloop.llmops.training import _load_session_events
+
+        path = tmp_path / "session.ndjson"
+        array = [
+            {"type": "system", "subtype": "init"},
+            {"type": "user", "message": {"content": "task desc"}},
+            {"type": "assistant", "message": {"content": "done"}},
+        ]
+        path.write_text(json.dumps(array) + "\n")
+        events = _load_session_events(str(path))
+        assert len(events) == 3
+        assert events[0]["type"] == "system"
+        assert events[1]["type"] == "user"
+
+    def test_skips_invalid_lines(self, tmp_path):
+        """Gracefully handles malformed JSON."""
+        from devloop.llmops.training import _load_session_events
+
+        path = tmp_path / "session.jsonl"
+        path.write_text(
+            '{"type": "ok"}\n'
+            'this is not json\n'
+            '\n'
+            '{"type": "also_ok"}\n'
+        )
+        events = _load_session_events(str(path))
+        assert len(events) == 2
+
+    def test_skips_non_dict_elements_in_array(self, tmp_path):
+        """Filters out non-dict elements from JSON array."""
+        from devloop.llmops.training import _load_session_events
+
+        path = tmp_path / "session.ndjson"
+        path.write_text(json.dumps([{"type": "ok"}, "not a dict", 42, {"type": "also_ok"}]) + "\n")
+        events = _load_session_events(str(path))
+        assert len(events) == 2
+
+
+class TestIsExternalUser:
+    """Tests for _is_external_user helper."""
+
+    def test_claude_code_format(self):
+        """Detects external user in Claude Code .jsonl format."""
+        from devloop.llmops.training import _is_external_user
+
+        assert _is_external_user({"userType": "external", "message": {"content": "hi"}})
+
+    def test_pipeline_format(self):
+        """Detects user in pipeline .ndjson format."""
+        from devloop.llmops.training import _is_external_user
+
+        assert _is_external_user({"type": "user", "message": {"content": "hi"}})
+
+    def test_assistant_is_not_user(self):
+        """Assistant messages are not external users."""
+        from devloop.llmops.training import _is_external_user
+
+        assert not _is_external_user({"type": "assistant", "message": {"content": "done"}})
+        assert not _is_external_user({"userType": "internal"})
+
+    def test_system_is_not_user(self):
+        """System events are not external users."""
+        from devloop.llmops.training import _is_external_user
+
+        assert not _is_external_user({"type": "system", "subtype": "init"})
