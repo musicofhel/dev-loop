@@ -18,7 +18,7 @@
       "id": 3,
       "title": "Runs by Persona",
       "type": "pie",
-      "query": "SELECT COALESCE(tb1_persona, tb2_persona, tb3_persona, tb4_persona, tb6_persona) as persona, COUNT(*) as runs FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.phase.persona' AND COALESCE(tb1_persona, tb2_persona, tb3_persona, tb4_persona, tb6_persona) IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY persona"
+      "query": "SELECT COALESCE(tb1_persona, tb2_persona, tb3_persona, tb4_persona, tb5_persona, tb6_persona) as persona, COUNT(*) as runs FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.phase.persona' AND COALESCE(tb1_persona, tb2_persona, tb3_persona, tb4_persona, tb5_persona, tb6_persona) IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY persona"
     },
     {
       "id": 4,

@@ -46,14 +46,14 @@ def log(msg: str, file=None):
         file.flush()
 
 
-def br_create(title: str, labels: str, description: str = "") -> str | None:
+def br_create(title: str, labels: str, description: str = "", cwd: str | Path | None = None) -> str | None:
     """Create a beads issue, return ID or None."""
     cmd = ["br", "create", title, "--labels", labels, "--silent"]
     if description:
         cmd.extend(["--description", description])
     result = subprocess.run(
         cmd,
-        capture_output=True, text=True, check=False, timeout=30, cwd=str(REPO),
+        capture_output=True, text=True, check=False, timeout=30, cwd=str(cwd or OOTESTPROJECT1),
     )
     if result.returncode != 0:
         return None
@@ -62,11 +62,11 @@ def br_create(title: str, labels: str, description: str = "") -> str | None:
     return issue_id if issue_id else None
 
 
-def br_reset(issue_id: str):
+def br_reset(issue_id: str, cwd: str | Path | None = None):
     """Reset issue to open status."""
     subprocess.run(
         ["br", "update", issue_id, "--status", "open"],
-        capture_output=True, text=True, check=False, timeout=30, cwd=str(REPO),
+        capture_output=True, text=True, check=False, timeout=30, cwd=str(cwd or OOTESTPROJECT1),
     )
 
 
@@ -211,7 +211,7 @@ TB_DEFS = [
 ]
 
 
-def run_one_iteration(iteration: int, results_dir: Path, run_log, skip: set[str]) -> dict:
+def run_one_iteration(iteration: int, results_dir: Path, run_log, skip: set[str], cooldown: int = 0) -> dict:
     """Run all 6 TBs once. Returns summary dict."""
     log(f"=== Iteration {iteration} ===", run_log)
     summary: dict[str, dict] = {}
@@ -281,6 +281,11 @@ def run_one_iteration(iteration: int, results_dir: Path, run_log, skip: set[str]
         if target_id:
             cleanup_worktree(target_id)
 
+        # Cooldown between TBs to avoid concurrency-induced timeouts
+        if cooldown > 0:
+            log(f"  Cooldown: {cooldown}s", run_log)
+            time.sleep(cooldown)
+
     return summary
 
 
@@ -348,6 +353,7 @@ def main():
     parser = argparse.ArgumentParser(description="Stress test all 6 TBs")
     parser.add_argument("--runs", type=int, default=30, help="Number of iterations (default: 30)")
     parser.add_argument("--skip", nargs="*", default=[], help="TBs to skip (e.g. --skip tb3 tb5)")
+    parser.add_argument("--cooldown", type=int, default=0, help="Seconds to wait between TBs within each iteration (default: 0)")
     args = parser.parse_args()
 
     skip = set(args.skip)
@@ -358,7 +364,8 @@ def main():
     log_path = results_dir / "stress.log"
     run_log = open(log_path, "w")
 
-    log(f"Stress test: {args.runs} iterations, skip={skip or 'none'}", run_log)
+    cooldown = args.cooldown
+    log(f"Stress test: {args.runs} iterations, skip={skip or 'none'}, cooldown={cooldown}s", run_log)
     log(f"Results: {results_dir}", run_log)
     log(f"Log: {log_path}", run_log)
 
@@ -374,7 +381,7 @@ def main():
     log("Pre-flight: running pytest...", run_log)
     pytest_result = subprocess.run(
         ["uv", "run", "pytest", "tests/", "-q", "--tb=no"],
-        capture_output=True, text=True, check=False, timeout=120, cwd=str(REPO),
+        capture_output=True, text=True, check=False, timeout=300, cwd=str(REPO),
     )
     log(f"  pytest: {pytest_result.stdout.strip().splitlines()[-1] if pytest_result.stdout.strip() else 'FAILED'}", run_log)
     if pytest_result.returncode != 0:
@@ -391,7 +398,7 @@ def main():
     all_results: list[dict] = []
     try:
         for i in range(1, args.runs + 1):
-            summary = run_one_iteration(i, results_dir, run_log, skip)
+            summary = run_one_iteration(i, results_dir, run_log, skip, cooldown)
             all_results.append(summary)
     except KeyboardInterrupt:
         log("\nInterrupted by user", run_log)

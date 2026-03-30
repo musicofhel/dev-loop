@@ -1,0 +1,42 @@
+{
+  "title": "LLMOps Insights",
+  "description": "DSPy vs CLI comparison, GEPA optimization history, training data volumes, Langfuse bridge status",
+  "panels": [
+    {
+      "id": 1,
+      "title": "DSPy vs CLI Latency",
+      "type": "line",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, AVG(CAST(tb7_dspy_latency AS DOUBLE)) as dspy_latency_s, AVG(CAST(tb7_cli_latency AS DOUBLE)) as cli_latency_s, AVG(CAST(tb7_latency_ratio AS DOUBLE)) as ratio FROM default WHERE service_name = 'dev-loop' AND operation_name = 'tb7.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+    },
+    {
+      "id": 2,
+      "title": "Finding Overlap Trend (%)",
+      "type": "line",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(AVG(CAST(tb7_message_overlap AS DOUBLE)) * 100, 1) as overlap_pct FROM default WHERE service_name = 'dev-loop' AND operation_name = 'tb7.run' AND tb7_message_overlap IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+    },
+    {
+      "id": 3,
+      "title": "GEPA Optimization History",
+      "type": "bar",
+      "query": "SELECT llmops_status as program, CAST(llmops_metric_before AS DOUBLE) as before_score, CAST(llmops_metric_after AS DOUBLE) as after_score FROM default WHERE service_name = 'dev-loop' AND operation_name = 'llmops.optimize' AND llmops_metric_before IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000"
+    },
+    {
+      "id": 4,
+      "title": "Training Data Volume",
+      "type": "bar",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, operation_name as export_type, SUM(CAST(llmops_examples_exported AS INT)) as examples FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'llmops.training.%' AND llmops_examples_exported IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day, export_type ORDER BY day"
+    },
+    {
+      "id": 5,
+      "title": "Langfuse Bridge Status",
+      "type": "pie",
+      "query": "SELECT llmops_langfuse_result as status, COUNT(*) as count FROM default WHERE service_name = 'dev-loop' AND operation_name = 'llmops.langfuse.init' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY status"
+    },
+    {
+      "id": 6,
+      "title": "DSPy vs CLI Finding Count",
+      "type": "line",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, AVG(CAST(tb7_dspy_finding_count AS DOUBLE)) as dspy_findings, AVG(CAST(tb7_cli_finding_count AS DOUBLE)) as cli_findings, AVG(CAST(tb7_finding_delta AS DOUBLE)) as delta FROM default WHERE service_name = 'dev-loop' AND operation_name = 'tb7.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "title": "TB Outcomes",
+  "description": "Cross-TB outcomes, retries, cascades, ambiguity scores, timeouts, and per-phase duration",
+  "panels": [
+    {
+      "id": 1,
+      "title": "TB Outcomes Over Time",
+      "type": "bar",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, COALESCE(tb1_outcome, tb2_outcome, tb3_outcome, tb4_outcome, tb5_outcome, tb6_outcome) as outcome, COUNT(*) as runs FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND COALESCE(tb1_outcome, tb2_outcome, tb3_outcome, tb4_outcome, tb5_outcome, tb6_outcome) IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day, outcome ORDER BY day"
+    },
+    {
+      "id": 2,
+      "title": "Retries Per TB",
+      "type": "bar",
+      "query": "SELECT operation_name as tb, ROUND(AVG(CAST(COALESCE(tb1_retries_used, tb2_retries_used, tb3_retries_used, tb4_retries_used, tb6_retries_used, '0') AS DOUBLE)), 1) as avg_retries, MAX(CAST(COALESCE(tb1_retries_used, tb2_retries_used, tb3_retries_used, tb4_retries_used, tb6_retries_used, '0') AS INT)) as max_retries FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb%.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY tb ORDER BY tb"
+    },
+    {
+      "id": 3,
+      "title": "Cascade Activity (TB-5)",
+      "type": "bar",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, SUM(CASE WHEN tb5_cascade_skipped = 'true' THEN 1 ELSE 0 END) as skipped, SUM(CASE WHEN tb5_cascade_skipped = 'false' OR tb5_cascade_skipped IS NULL THEN 1 ELSE 0 END) as cascaded FROM default WHERE service_name = 'dev-loop' AND operation_name = 'tb5.run' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+    },
+    {
+      "id": 4,
+      "title": "Ambiguity Scores (TB-1)",
+      "type": "bar",
+      "query": "SELECT CASE WHEN CAST(tb1_ambiguity_score AS DOUBLE) < 0.3 THEN 'low (<0.3)' WHEN CAST(tb1_ambiguity_score AS DOUBLE) < 0.7 THEN 'medium (0.3-0.7)' ELSE 'high (>=0.7)' END as bucket, COUNT(*) as count FROM default WHERE service_name = 'dev-loop' AND operation_name = 'tb1.phase.ambiguity_check' AND tb1_ambiguity_score IS NOT NULL AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY bucket ORDER BY bucket"
+    },
+    {
+      "id": 5,
+      "title": "Agent Timeout Rate (%)",
+      "type": "line",
+      "query": "SELECT DATE_TRUNC('day', TO_TIMESTAMP(_timestamp / 1000000)) as day, ROUND(100.0 * SUM(CASE WHEN runtime_timed_out = 'true' THEN 1 ELSE 0 END) / COUNT(*), 1) as timeout_pct, COUNT(*) as total_runs FROM default WHERE service_name = 'dev-loop' AND operation_name = 'runtime.spawn_agent' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY day ORDER BY day"
+    },
+    {
+      "id": 6,
+      "title": "TB Duration Breakdown (TB-1 Phases)",
+      "type": "bar",
+      "query": "SELECT operation_name as phase, ROUND(AVG(CAST(duration AS DOUBLE) / 1000000), 1) as avg_seconds FROM default WHERE service_name = 'dev-loop' AND operation_name LIKE 'tb1.phase.%' AND _timestamp >= CAST(NOW() - INTERVAL '30 DAYS' AS BIGINT) / 1000 GROUP BY phase ORDER BY avg_seconds DESC"
+    }
+  ]
+}
