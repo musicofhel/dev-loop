@@ -1,0 +1,119 @@
+You are a senior code reviewer performing an automated quality gate check.
+
+## Issue Context
+**Title:** v4: add rounding helper to scoring
+**Description:** 
+
+## Review Criteria
+Check the diff for the following issues:
+  - race_conditions
+  - memory_leaks
+  - logic_errors
+  - missing_error_handling_at_boundaries
+  - performance_antipatterns
+
+## Severity Levels
+  - critical: fail
+  - warning: pass
+  - suggestion: pass
+
+## Instructions
+1. Review the diff below carefully.
+2. For each finding, classify it as: critical, warning, or suggestion.
+3. Respond with ONLY valid JSON — no markdown fences, no explanation outside the JSON.
+4. Use this exact schema:
+
+{
+  "findings": [
+    {
+      "severity": "critical|warning|suggestion",
+      "message": "description of the issue",
+      "file": "path/to/file or null",
+      "line": line_number_or_null,
+      "rule": "which criteria this violates"
+    }
+  ],
+  "summary": "one-line overall assessment"
+}
+
+If there are no findings, return: {"findings": [], "summary": "No issues found."}
+
+## Diff to Review
+```
+diff --git a/src/oo_test_project/calculator.py b/src/oo_test_project/calculator.py
+index aee7e83..4b32511 100644
+--- a/src/oo_test_project/calculator.py
++++ b/src/oo_test_project/calculator.py
+@@ -1,3 +1,15 @@
+ """Calculator utilities for oo-test-project."""
+ 
+ # TB-2 will add a factorial function here
++
++
++def factorial(n: int) -> int:
++    """Return n! for non-negative integers."""
++    if not isinstance(n, int):
++        raise TypeError("factorial requires an integer")
++    if n < 0:
++        raise ValueError("factorial not defined for negative numbers")
++    result = 1
++    for i in range(2, n + 1):
++        result *= i
++    return result
+diff --git a/src/oo_test_project/scoring.py b/src/oo_test_project/scoring.py
+index 32b5f6c..788b670 100644
+--- a/src/oo_test_project/scoring.py
++++ b/src/oo_test_project/scoring.py
+@@ -17,6 +17,19 @@ def normalize_score(raw: float, min_val: float = 0.0, max_val: float = 1.0) -> f
+     return max(0.0, min(1.0, (raw - min_val) / (max_val - min_val)))
+ 
+ 
++def round_score(score: float, decimals: int = 2) -> float:
++    """Round a score to a given number of decimal places.
++
++    Args:
++        score: The score to round.
++        decimals: Number of decimal places (default 2).
++
++    Returns:
++        Rounded score.
++    """
++    return round(score, decimals)
++
++
+ def weighted_average(scores: list[float], weights: list[float] | None = None) -> float:
+     """Compute weighted average of scores.
+ 
+diff --git a/tests/test_scoring.py b/tests/test_scoring.py
+index b262586..68df935 100644
+--- a/tests/test_scoring.py
++++ b/tests/test_scoring.py
+@@ -1,5 +1,5 @@
+ """Tests for scoring utilities."""
+-from oo_test_project.scoring import normalize_score, weighted_average
++from oo_test_project.scoring import normalize_score, round_score, weighted_average
+ import pytest
+ 
+ 
+@@ -37,3 +37,20 @@ class TestWeightedAverage:
+     def test_mismatched_lengths(self):
+         with pytest.raises(ValueError):
+             weighted_average([1.0], weights=[1.0, 2.0])
++
++
++class TestRoundScore:
++    def test_default_two_decimals(self):
++        assert round_score(0.6666) == 0.67
++
++    def test_custom_decimals(self):
++        assert round_score(0.6666, 3) == 0.667
++
++    def test_already_rounded(self):
++        assert round_score(0.5) == 0.5
++
++    def test_zero(self):
++        assert round_score(0.0) == 0.0
++
++    def test_one(self):
++        assert round_score(1.0) == 1.0
+```
