@@ -19,11 +19,15 @@ import json
 import logging
 import subprocess
 from datetime import UTC, datetime
+from pathlib import Path
 
 from opentelemetry import trace
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("feedback.changelog", "0.1.0")
+
+
+_DEVLOOP_ROOT = str(Path(__file__).resolve().parents[3])
 
 
 def _run_br(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -34,7 +38,7 @@ def _run_br(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[s
         text=True,
         check=False,
         timeout=30,
-        cwd=cwd,
+        cwd=cwd or _DEVLOOP_ROOT,
     )
 
 

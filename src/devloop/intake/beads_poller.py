@@ -11,8 +11,12 @@ import logging
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# dev-loop project root — beads workspace lives here (.beads/)
+_DEVLOOP_ROOT = str(Path(__file__).resolve().parents[3])
 
 
 class BeadsUnavailable(Exception):
@@ -75,7 +79,7 @@ def claim_issue(issue_id: str, repo_path: str | None = None) -> bool:
             text=True,
             check=False,
             timeout=30,
-            cwd=repo_path,
+            cwd=_DEVLOOP_ROOT,
         )
     except subprocess.TimeoutExpired:
         logger.error("Timed out claiming issue %s", issue_id)
@@ -116,7 +120,7 @@ def get_issue(issue_id: str, repo_path: str | None = None) -> WorkItem | None:
             text=True,
             check=False,
             timeout=30,
-            cwd=repo_path,
+            cwd=_DEVLOOP_ROOT,
         )
     except subprocess.TimeoutExpired:
         logger.error("Timed out fetching issue %s", issue_id)
@@ -174,7 +178,7 @@ def poll_ready(*, repo_path: str | None = None, fail_on_missing: bool = False) -
             text=True,
             check=False,
             timeout=30,
-            cwd=repo_path,
+            cwd=_DEVLOOP_ROOT,
         )
     except subprocess.TimeoutExpired:
         logger.error("Timed out polling br ready")

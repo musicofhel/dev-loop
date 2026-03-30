@@ -41,10 +41,13 @@ def log(msg: str, file=None):
         file.flush()
 
 
-def br_create(title: str, labels: str) -> str | None:
+def br_create(title: str, labels: str, description: str = "") -> str | None:
     """Create a beads issue, return ID or None."""
+    cmd = ["br", "create", title, "--labels", labels, "--silent"]
+    if description:
+        cmd.extend(["--description", description])
     result = subprocess.run(
-        ["br", "create", title, "--labels", labels, "--silent"],
+        cmd,
         capture_output=True, text=True, check=False, timeout=30, cwd=str(REPO),
     )
     if result.returncode != 0:
@@ -174,14 +177,32 @@ def run_tb6(issue_id: str, run_log) -> dict:
     return run_pipeline("run_tb6", issue_id, str(PROMPT_BENCH))
 
 
-# TB definitions: (name, issue_title, labels, runner, needs_branch, cleanup_fn)
+# TB definitions: (name, issue_title, description, labels, runner, needs_branch, cleanup_fn)
 TB_DEFS = [
-    ("tb1", "Stress: add factorial function", "feature", run_tb1, False, None),
-    ("tb2", "Stress: fix modulo edge case", "bug", run_tb2, False, None),
-    ("tb3", "Stress: add input sanitizer", "security", run_tb3, False, None),
-    ("tb4", "Stress: add log function", "bug", run_tb4, False, None),
-    ("tb5", "Stress: add helper function", "feature", run_tb5, True, cleanup_tb5_branch),
-    ("tb6", "Stress: add ceil function", "bug", run_tb6, False, None),
+    ("tb1", "Stress: add factorial function",
+     "Add a factorial(n) function to calculator.py that returns n! for non-negative integers. "
+     "Should raise ValueError for negative inputs. Add tests in test_calculator.py.",
+     "feature", run_tb1, False, None),
+    ("tb2", "Stress: fix modulo edge case",
+     "The modulo function in calculator.py returns incorrect results when the divisor is negative. "
+     "Fix the edge case and add a regression test.",
+     "bug", run_tb2, False, None),
+    ("tb3", "Stress: add input sanitizer",
+     "Add an input sanitizer that validates calculator inputs before processing. "
+     "Should reject non-numeric strings and prevent injection via eval().",
+     "security", run_tb3, False, None),
+    ("tb4", "Stress: add log function",
+     "Add a natural logarithm function log(x) to calculator.py. "
+     "Should raise ValueError for x <= 0. Add corresponding tests.",
+     "bug", run_tb4, False, None),
+    ("tb5", "Stress: add helper function",
+     "Add a helper utility function to the project. "
+     "Should integrate with the existing module structure.",
+     "feature", run_tb5, True, cleanup_tb5_branch),
+    ("tb6", "Stress: add ceil function",
+     "Add a ceil(x) function to calculator.py that returns the ceiling of x. "
+     "Should handle float and integer inputs. Add tests.",
+     "bug", run_tb6, False, None),
 ]
 
 
@@ -190,14 +211,14 @@ def run_one_iteration(iteration: int, results_dir: Path, run_log, skip: set[str]
     log(f"=== Iteration {iteration} ===", run_log)
     summary: dict[str, dict] = {}
 
-    for tb_name, title, labels, runner, needs_branch, cleanup_fn in TB_DEFS:
+    for tb_name, title, description, labels, runner, needs_branch, cleanup_fn in TB_DEFS:
         if tb_name in skip:
             log(f"  {tb_name.upper()} SKIPPED (--skip)", run_log)
             summary[tb_name] = {"skipped": True}
             continue
 
         issue_title = f"{title} (iter {iteration})"
-        issue_id = br_create(issue_title, labels)
+        issue_id = br_create(issue_title, labels, description)
         if not issue_id:
             log(f"  {tb_name.upper()} FAILED: could not create issue", run_log)
             summary[tb_name] = {"success": False, "error": "br create failed"}

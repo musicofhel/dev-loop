@@ -67,8 +67,9 @@ tracer_tb3 = trace.get_tracer("tb3", "0.1.0")
 # TB-2 test fixtures path
 # ---------------------------------------------------------------------------
 
-_FIXTURES_DIR = Path(__file__).resolve().parents[3] / "test-fixtures"
-_CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
+_DEVLOOP_ROOT = str(Path(__file__).resolve().parents[3])
+_FIXTURES_DIR = Path(_DEVLOOP_ROOT) / "test-fixtures"
+_CONFIG_DIR = Path(_DEVLOOP_ROOT) / "config"
 _CAPABILITIES_CONFIG = _CONFIG_DIR / "capabilities.yaml"
 
 def _latest_failure_gate(all_gate_failures: list[dict]) -> str | None:
@@ -107,7 +108,7 @@ def _unclaim_issue(issue_id: str, repo_path: str | None = None) -> None:
             text=True,
             check=False,
             timeout=30,
-            cwd=repo_path,
+            cwd=_DEVLOOP_ROOT,
         )
         logger.info("Unclaimed issue %s (set to open)", issue_id)
     except Exception:

@@ -805,11 +805,12 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                 try:
                     suggested_fix = _suggest_claude_md_fix(all_gate_failures)
                     if suggested_fix:
+                        from devloop.feedback.pipeline import _DEVLOOP_ROOT
                         subprocess.run(
                             ["br", "comments", "add", issue_id, "--message",
                              f"[dev-loop] Suggested CLAUDE.md fix:\n{suggested_fix}"],
                             capture_output=True, text=True, check=False,
-                            timeout=30, cwd=repo_path,
+                            timeout=30, cwd=_DEVLOOP_ROOT,
                         )
                 except Exception:
                     pass  # fail-safe

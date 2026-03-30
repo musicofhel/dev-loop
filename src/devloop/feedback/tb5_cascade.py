@@ -37,7 +37,8 @@ logger = logging.getLogger(__name__)
 # Config paths (same as pipeline.py)
 # ---------------------------------------------------------------------------
 
-_CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
+_DEVLOOP_ROOT = str(Path(__file__).resolve().parents[3])
+_CONFIG_DIR = Path(_DEVLOOP_ROOT) / "config"
 
 # ---------------------------------------------------------------------------
 # OTel tracer
@@ -177,7 +178,7 @@ def _get_source_issue_details(issue_id: str, repo_path: str | None = None) -> di
         text=True,
         check=False,
         timeout=30,
-        cwd=repo_path,
+        cwd=_DEVLOOP_ROOT,
     )
     if result.returncode != 0:
         error_msg = result.stderr.strip() or f"br show failed with exit code {result.returncode}"
@@ -234,7 +235,7 @@ def _create_cascade_issue(
         text=True,
         check=False,
         timeout=30,
-        cwd=repo_path,
+        cwd=_DEVLOOP_ROOT,
     )
 
     # If --parent fails (cross-repo: parent issue not in target beads), retry without it
@@ -255,7 +256,7 @@ def _create_cascade_issue(
             text=True,
             check=False,
             timeout=30,
-            cwd=repo_path,
+            cwd=_DEVLOOP_ROOT,
         )
 
     if result.returncode != 0:
@@ -302,7 +303,7 @@ def _report_cascade_outcome(
         text=True,
         check=False,
         timeout=30,
-        cwd=repo_path,
+        cwd=_DEVLOOP_ROOT,
     )
     if result.returncode != 0:
         logger.warning(

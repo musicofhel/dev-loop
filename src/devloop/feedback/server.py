@@ -17,6 +17,7 @@ import logging
 import os
 import subprocess
 import time
+from pathlib import Path
 
 from fastmcp import FastMCP
 from opentelemetry import trace
@@ -53,6 +54,9 @@ mcp = FastMCP(
 # ---------------------------------------------------------------------------
 
 
+_DEVLOOP_ROOT = str(Path(__file__).resolve().parents[3])
+
+
 def _run_br(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
     """Run a br CLI command and return the result."""
     return subprocess.run(
@@ -61,7 +65,7 @@ def _run_br(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[s
         text=True,
         check=False,
         timeout=30,
-        cwd=cwd,
+        cwd=cwd or _DEVLOOP_ROOT,
     )
 
 
@@ -510,7 +514,7 @@ def escalate_to_human(
         comment_text = "\n".join(comment_lines)
 
         # Update issue status to blocked
-        status_result = _run_br("update", issue_id, "--status", "blocked", cwd=repo_path)
+        status_result = _run_br("update", issue_id, "--status", "blocked")
         status_updated = status_result.returncode == 0
 
         if not status_updated:
@@ -520,7 +524,7 @@ def escalate_to_human(
             )
 
         # Add the failure summary comment
-        comment_result = _run_br("comments", "add", issue_id, "--message", comment_text, cwd=repo_path)
+        comment_result = _run_br("comments", "add", issue_id, "--message", comment_text)
         comment_added = comment_result.returncode == 0
 
         if not comment_added:

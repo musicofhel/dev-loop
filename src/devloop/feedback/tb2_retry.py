@@ -25,6 +25,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Link
 
 from devloop.feedback.pipeline import (
+    _DEVLOOP_ROOT,
     _FIXTURES_DIR,
     _clear_pipeline_timeout,
     _latest_failure_gate,
@@ -118,7 +119,7 @@ def _verify_blocked_status(issue_id: str, repo_path: str | None = None) -> bool:
             text=True,
             check=False,
             timeout=30,
-            cwd=repo_path,
+            cwd=_DEVLOOP_ROOT,
         )
         if result.returncode != 0:
             logger.warning(

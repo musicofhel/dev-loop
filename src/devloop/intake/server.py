@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 from fastmcp import FastMCP
 from opentelemetry import trace
@@ -72,6 +73,9 @@ def _workitem_to_model(item: WorkItem) -> WorkItemModel:
     )
 
 
+_DEVLOOP_ROOT = str(Path(__file__).resolve().parents[3])
+
+
 def _run_br(*args: str, check: bool = False, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
     """Run a br CLI command and return the result."""
     return subprocess.run(
@@ -80,7 +84,7 @@ def _run_br(*args: str, check: bool = False, cwd: str | None = None) -> subproce
         text=True,
         check=check,
         timeout=30,
-        cwd=cwd,
+        cwd=cwd or _DEVLOOP_ROOT,
     )
 
 
