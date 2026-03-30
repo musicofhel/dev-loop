@@ -13,6 +13,7 @@ personas:
     model: sonnet
     max_turns_default: 10
     max_context_pct: 75
+    timeout_seconds: 300
 
   feature:
     labels: [feature]
@@ -24,6 +25,7 @@ personas:
     model: opus
     max_turns_default: 25
     max_context_pct: 75
+    timeout_seconds: 600
 
   refactor:
     labels: [refactor]
@@ -35,6 +37,7 @@ personas:
     model: opus
     max_turns_default: 20
     max_context_pct: 75
+    timeout_seconds: 600
 
   security-fix:
     labels: [security]
@@ -47,6 +50,7 @@ personas:
     model: opus
     max_turns_default: 15
     max_context_pct: 75
+    timeout_seconds: 600
 
   docs:
     labels: [docs]
@@ -57,6 +61,7 @@ personas:
     model: haiku
     max_turns_default: 10
     max_context_pct: 75
+    timeout_seconds: 120
 
   chore:
     labels: [chore]
@@ -67,6 +72,7 @@ personas:
     model: haiku
     max_turns_default: 5
     max_context_pct: 75
+    timeout_seconds: 120
 
   performance:
     labels: [performance, perf]
@@ -77,6 +83,7 @@ personas:
     model: sonnet
     max_turns_default: 15
     max_context_pct: 75
+    timeout_seconds: 300
 
   infrastructure:
     labels: [infrastructure, ci, ci-cd, devops]
@@ -88,6 +95,7 @@ personas:
     model: sonnet
     max_turns_default: 10
     max_context_pct: 75
+    timeout_seconds: 300
 
   test:
     labels: [test, testing]
@@ -99,3 +107,4 @@ personas:
     model: sonnet
     max_turns_default: 15
     max_context_pct: 75
+    timeout_seconds: 300

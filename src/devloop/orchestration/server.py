@@ -53,7 +53,7 @@ from devloop.orchestration.types import (
     PRResult,
     WorktreeInfo,
 )
-from devloop.paths import WORKTREE_BASE
+from devloop.paths import HANDOFF_DIR, LOCK_DIR, WORKTREE_BASE
 from devloop.runtime.deny_list import generate_deny_rules
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,6 @@ tracer = trace.get_tracer("orchestration", "0.1.0")
 BRANCH_PREFIX = "dl/"
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 AGENTS_CONFIG = CONFIG_DIR / "agents.yaml"
-LOCK_DIR = Path("/tmp/dev-loop/locks")
 
 # ---------------------------------------------------------------------------
 # MCP server
@@ -395,6 +394,7 @@ def select_persona(labels: list[str], issue_description: str = "") -> dict:
                 model=fallback_model,
                 max_turns_default=fallback.get("max_turns_default", 15),
                 max_context_pct=fallback.get("max_context_pct", 75),
+                timeout_seconds=fallback.get("timeout_seconds", 300),
             )
             span.set_status(trace.StatusCode.OK)
             return persona.model_dump()
@@ -430,6 +430,7 @@ def select_persona(labels: list[str], issue_description: str = "") -> dict:
             model=model,
             max_turns_default=data.get("max_turns_default", 15),
             max_context_pct=data.get("max_context_pct", 75),
+            timeout_seconds=data.get("timeout_seconds", 300),
         )
 
         span.set_status(trace.StatusCode.OK)
@@ -577,7 +578,7 @@ def build_claude_md_overlay(
 
         # Context limit / handoff instructions
         handoff_id = issue_id or "current-issue"
-        handoff_path = f"/tmp/dev-loop/handoffs/{handoff_id}.md"
+        handoff_path = str(HANDOFF_DIR / f"{handoff_id}.md")
         lines.append("## Context Window Management")
         lines.append("")
         lines.append(

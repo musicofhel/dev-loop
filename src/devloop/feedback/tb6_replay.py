@@ -114,8 +114,8 @@ def _save_session(
     """Save agent stdout and metadata to session files on disk.
 
     Creates:
-      /tmp/dev-loop/sessions/<session_id>.ndjson   (raw stdout)
-      /tmp/dev-loop/sessions/<session_id>.meta.json (metadata)
+      SESSIONS_DIR/<session_id>.ndjson   (raw stdout)
+      SESSIONS_DIR/<session_id>.meta.json (metadata)
 
     Returns the path to the NDJSON file.
     """
@@ -436,6 +436,7 @@ def run_tb6(
                     task_prompt=task_prompt,
                     model=persona_result.get("model", "sonnet"),
                     allowed_tools=allowed_tools,
+                    timeout_seconds=persona_result.get("timeout_seconds", 300),
                 )
                 agent_exit = agent_result.get("exit_code", -1)
                 agent_stdout = agent_result.get("stdout", "")

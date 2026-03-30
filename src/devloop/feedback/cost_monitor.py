@@ -22,6 +22,8 @@ from pathlib import Path
 
 from opentelemetry import trace
 
+from devloop.paths import SESSIONS_DIR as _SESSIONS_DIR
+
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("feedback.cost_monitor", "0.1.0")
 
@@ -29,13 +31,11 @@ tracer = trace.get_tracer("feedback.cost_monitor", "0.1.0")
 # Session-based usage tracking (reads from TB-6 session metadata)
 # ---------------------------------------------------------------------------
 
-_SESSIONS_DIR = Path("/tmp/dev-loop/sessions")
-
 
 def get_usage_summary(hours: int = 24) -> dict:
     """Aggregate usage stats from recent session metadata files.
 
-    Scans /tmp/dev-loop/sessions/*.meta.json for sessions within the
+    Scans ``SESSIONS_DIR/*.meta.json`` for sessions within the
     time window and sums up turn/token counts.
 
     Args:

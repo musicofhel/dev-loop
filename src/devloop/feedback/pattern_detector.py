@@ -23,10 +23,10 @@ from pathlib import Path
 
 from opentelemetry import trace
 
+from devloop.paths import SESSIONS_DIR as _SESSIONS_DIR
+
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("feedback.pattern_detector", "0.1.0")
-
-_SESSIONS_DIR = Path("/tmp/dev-loop/sessions")
 
 # ---------------------------------------------------------------------------
 # Known failure patterns and their suggested fixes

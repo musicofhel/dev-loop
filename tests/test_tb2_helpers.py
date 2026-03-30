@@ -13,7 +13,7 @@ from devloop.feedback.pipeline import (
     _verify_blocked_status,
 )
 from devloop.feedback.types import RetryAttempt, TB2Result
-from devloop.gates.types import GateSuiteResult
+from devloop.gates.types import Finding, GateResult, GateSuiteResult
 
 
 # ---------------------------------------------------------------------------
@@ -243,3 +243,70 @@ class TestTB2Result:
         assert dumped["pr_url"] == "https://github.com/test/repo/pull/42"
         restored = TB2Result(**dumped)
         assert restored.pr_url == "https://github.com/test/repo/pull/42"
+
+
+# ---------------------------------------------------------------------------
+# Timeout-into-retry-loop tests
+# ---------------------------------------------------------------------------
+
+
+class TestTimeoutGateFailure:
+    """Tests that a spawn timeout produces a valid gate failure record
+    that can be fed into the retry loop."""
+
+    def test_timeout_produces_valid_gate_suite(self):
+        """A timeout failure should be expressible as a GateSuiteResult."""
+        duration = 303.1
+        gate_raw = GateSuiteResult(
+            overall_passed=False,
+            first_failure="agent_timeout",
+            gate_results=[
+                GateResult(
+                    gate_name="agent_timeout",
+                    passed=False,
+                    findings=[
+                        Finding(
+                            severity="critical",
+                            message=f"Agent timed out after {duration:.0f}s (no output to gate)",
+                        ),
+                    ],
+                ),
+            ],
+        ).model_dump()
+
+        suite = GateSuiteResult(**gate_raw)
+        assert not suite.overall_passed
+        assert suite.first_failure == "agent_timeout"
+        assert len(suite.gate_results) == 1
+        assert "timed out" in suite.gate_results[0].findings[0].message
+
+    def test_timeout_retry_history_records_failure(self):
+        """A timeout should be recorded in retry_history with agent_timeout."""
+        attempt = RetryAttempt(
+            attempt=0,
+            agent_exit_code=-1,
+            gates_passed=False,
+            first_failure="agent_timeout",
+            span_id="abc123",
+        )
+        assert attempt.gates_passed is False
+        assert attempt.first_failure == "agent_timeout"
+
+    def test_timeout_failure_in_collect_all_failures(self):
+        """Timeout gate failures should pass through _collect_all_failures."""
+        from devloop.feedback.server import _collect_all_failures
+
+        timeout_record = {
+            "gate_results": [
+                {
+                    "gate_name": "agent_timeout",
+                    "passed": False,
+                    "findings": [
+                        {"severity": "critical", "message": "Agent timed out after 303s"},
+                    ],
+                },
+            ],
+        }
+        failures = _collect_all_failures([timeout_record])
+        assert len(failures) == 1
+        assert failures[0]["gate_name"] == "agent_timeout"

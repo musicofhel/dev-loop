@@ -311,6 +311,7 @@ def retry_agent(
     max_retries: int = 2,
     model: str = "sonnet",
     max_turns: int | None = None,
+    timeout_seconds: float = 300.0,
 ) -> dict:
     """Re-spawn agent with failure context and re-run gates."""
     with tracer.start_as_current_span(
@@ -364,6 +365,7 @@ def retry_agent(
             task_prompt=prompt_text,
             model=model,
             max_turns=max_turns,
+            timeout_seconds=timeout_seconds,
         )
 
         exit_code = agent_result.get("exit_code", -1)

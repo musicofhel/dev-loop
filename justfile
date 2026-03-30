@@ -232,7 +232,7 @@ emergency-stop:
 recover:
     @echo "=== Recovery scan ==="
     @echo "Checking for orphaned worktrees..."
-    @find /tmp/dev-loop/worktrees -name ".dev-loop-metadata.json" -mmin +60 2>/dev/null || echo "  No worktree directory found"
+    @find "${DEVLOOP_TMP_DIR:-/tmp/dev-loop}"/worktrees -name ".dev-loop-metadata.json" -mmin +60 2>/dev/null || echo "  No worktree directory found"
     @echo "Checking for stuck issues..."
     @br stale --days 1 2>/dev/null || echo "  No stale issues"
     @echo "Run 'just worktree-gc' to clean up orphaned worktrees"
@@ -242,7 +242,7 @@ worktree-gc:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "Scanning for orphaned worktrees..."
-    orphans=$(find /tmp/dev-loop/worktrees -maxdepth 1 -mmin +1440 -type d 2>/dev/null || true)
+    orphans=$(find "${DEVLOOP_TMP_DIR:-/tmp/dev-loop}"/worktrees -maxdepth 1 -mmin +1440 -type d 2>/dev/null || true)
     if [ -z "$orphans" ]; then
         echo "  No orphans found"
         exit 0
@@ -278,7 +278,7 @@ sessions-list *ARGS:
     #!/usr/bin/env bash
     sessions_dir="${HOME}/.local/share/dev-loop/sessions"
     if [ ! -d "$sessions_dir" ]; then
-        sessions_dir="/tmp/dev-loop/sessions"
+        sessions_dir="${DEVLOOP_TMP_DIR:-/tmp/dev-loop}/sessions"
     fi
     if [ ! -d "$sessions_dir" ]; then
         echo "No sessions directory found"

@@ -348,13 +348,26 @@ def run_tb2(
                     task_prompt=task_prompt,
                     model=persona_result.get("model", "sonnet"),
                     allowed_tools=allowed_tools,
+                    timeout_seconds=persona_result.get("timeout_seconds", 300),
                 )
 
                 agent_exit = agent_result.get("exit_code", -1)
                 agent_span.set_attribute("tb2.agent_exit_code", agent_exit)
                 attempt_span_ids.append(_span_id_hex(agent_span))
 
-                if agent_exit != 0:
+                # If the agent timed out, feed the timeout into the retry
+                # loop instead of returning early.  This lets TB-2 retry
+                # after a slow spawn (the 303s timeout seen in stress tests).
+                initial_timed_out = agent_result.get("timed_out", False)
+                if initial_timed_out:
+                    duration = agent_result.get("duration_seconds", 0)
+                    agent_span.set_attribute("tb2.agent_timed_out", True)
+                    agent_span.set_attribute("tb2.agent_duration", duration)
+                    logger.warning(
+                        "TB-2: Initial agent timed out after %.0fs — entering retry loop",
+                        duration,
+                    )
+                elif agent_exit != 0:
                     elapsed = time.monotonic() - pipeline_start
                     return TB2Result(
                         issue_id=issue_id,
@@ -372,59 +385,95 @@ def run_tb2(
                     ).model_dump()
 
             # ----------------------------------------------------------
-            # Phase 8: Run quality gates (or force-fail on first attempt)
+            # Phase 8: Run quality gates (or force-fail, or skip if timed out)
             # ----------------------------------------------------------
-            with tracer_tb2.start_as_current_span(
-                "tb2.phase.gates",
-                attributes={
-                    "tb2.phase": "gates",
-                    "tb2.attempt": 0,
-                    "tb2.force_fail": force_gate_fail,
-                },
-            ) as gates_span:
-                if force_gate_fail:
-                    logger.info("TB-2: FORCED FAILURE on initial gate run")
-                    gate_raw = _make_forced_failure()
-                else:
-                    gate_raw = run_all_gates(
-                        worktree_path=worktree_path,
-                        issue_title=issue_title,
-                        issue_description=issue_description,
-                    )
+            gate_suite: GateSuiteResult | None = None
+            gate_raw: dict | None = None
+            gates_span_context = None
 
-                try:
-                    gate_suite = GateSuiteResult(**gate_raw)
-                except Exception as exc:
-                    elapsed = time.monotonic() - pipeline_start
-                    error_msg = f"Malformed gate result: {exc}"
-                    return TB2Result(
-                        issue_id=issue_id,
-                        repo_path=repo_path,
-                        success=False,
-                        phase="gates",
-                        worktree_path=worktree_path,
-                        persona=persona_name,
-                        error=error_msg,
-                        duration_seconds=round(elapsed, 2),
-                        trace_id=root_trace_id,
-                        attempt_span_ids=attempt_span_ids,
-                        force_gate_fail_used=force_gate_fail,
-                    ).model_dump()
-
-                gates_span.set_attribute("tb2.gates_passed", gate_suite.overall_passed)
-                if gate_suite.first_failure:
-                    gates_span.set_attribute("tb2.first_failure", gate_suite.first_failure)
-
-                # Record initial attempt
+            if initial_timed_out:
+                # Agent timed out — no output to gate.  Seed a timeout
+                # failure record and jump straight to the retry loop.
+                duration = agent_result.get("duration_seconds", 0)
+                gate_raw = GateSuiteResult(
+                    overall_passed=False,
+                    first_failure="agent_timeout",
+                    gate_results=[
+                        GateResult(
+                            gate_name="agent_timeout",
+                            passed=False,
+                            findings=[
+                                Finding(
+                                    severity="critical",
+                                    message=f"Agent timed out after {duration:.0f}s (no output to gate)",
+                                ),
+                            ],
+                        ),
+                    ],
+                ).model_dump()
+                gate_suite = GateSuiteResult(**gate_raw)
                 retry_history.append(
                     RetryAttempt(
                         attempt=0,
                         agent_exit_code=agent_exit,
-                        gates_passed=gate_suite.overall_passed,
-                        first_failure=gate_suite.first_failure,
+                        gates_passed=False,
+                        first_failure="agent_timeout",
                         span_id=attempt_span_ids[0] if attempt_span_ids else None,
                     )
                 )
+            else:
+                with tracer_tb2.start_as_current_span(
+                    "tb2.phase.gates",
+                    attributes={
+                        "tb2.phase": "gates",
+                        "tb2.attempt": 0,
+                        "tb2.force_fail": force_gate_fail,
+                    },
+                ) as gates_span:
+                    if force_gate_fail:
+                        logger.info("TB-2: FORCED FAILURE on initial gate run")
+                        gate_raw = _make_forced_failure()
+                    else:
+                        gate_raw = run_all_gates(
+                            worktree_path=worktree_path,
+                            issue_title=issue_title,
+                            issue_description=issue_description,
+                        )
+
+                    try:
+                        gate_suite = GateSuiteResult(**gate_raw)
+                    except Exception as exc:
+                        elapsed = time.monotonic() - pipeline_start
+                        error_msg = f"Malformed gate result: {exc}"
+                        return TB2Result(
+                            issue_id=issue_id,
+                            repo_path=repo_path,
+                            success=False,
+                            phase="gates",
+                            worktree_path=worktree_path,
+                            persona=persona_name,
+                            error=error_msg,
+                            duration_seconds=round(elapsed, 2),
+                            trace_id=root_trace_id,
+                            attempt_span_ids=attempt_span_ids,
+                            force_gate_fail_used=force_gate_fail,
+                        ).model_dump()
+
+                    gates_span.set_attribute("tb2.gates_passed", gate_suite.overall_passed)
+                    if gate_suite.first_failure:
+                        gates_span.set_attribute("tb2.first_failure", gate_suite.first_failure)
+                    gates_span_context = gates_span.get_span_context()
+
+                    # Record initial attempt
+                    retry_history.append(
+                        RetryAttempt(
+                            attempt=0,
+                            agent_exit_code=agent_exit,
+                            gates_passed=gate_suite.overall_passed,
+                            first_failure=gate_suite.first_failure,
+                            span_id=attempt_span_ids[0] if attempt_span_ids else None,
+                        )
+                    )
 
             # ----------------------------------------------------------
             # Phase 9: Gates passed on first try -> success
@@ -485,7 +534,7 @@ def run_tb2(
             # Phase 10: Gates failed -> retry loop with span linking
             # ----------------------------------------------------------
             all_gate_failures: list[dict] = [gate_raw]
-            previous_span_context = gates_span.get_span_context()
+            previous_span_context = gates_span_context
 
             for attempt in range(1, max_retries + 1):
                 retries_used = attempt
@@ -526,6 +575,7 @@ def run_tb2(
                         gate_failures=all_gate_failures,
                         attempt=attempt,
                         max_retries=max_retries,
+                        timeout_seconds=persona_result.get("timeout_seconds", 300),
                     )
 
                     retry_success = retry_raw.get("success", False)

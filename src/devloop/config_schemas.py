@@ -32,6 +32,7 @@ class PersonaConfig(BaseModel):
     model: str
     max_turns_default: int = Field(ge=1)
     max_context_pct: int = Field(ge=1, le=100)
+    timeout_seconds: int = Field(default=300, ge=30)
 
     @field_validator("model")
     @classmethod

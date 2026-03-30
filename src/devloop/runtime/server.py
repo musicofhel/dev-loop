@@ -23,6 +23,7 @@ from pathlib import Path
 from fastmcp import FastMCP
 from opentelemetry import trace
 
+from devloop.paths import SESSIONS_DIR
 from devloop.runtime.types import AgentConfig, AgentResult
 
 # ---------------------------------------------------------------------------
@@ -222,12 +223,12 @@ def _estimate_context_pct(
 def _read_session_context_pct(worktree_path: str) -> float | None:
     """Try to read context_pct from the ambient daemon's session metadata.
 
-    Scans /tmp/dev-loop/sessions/ for the most recently modified session
+    Scans ``SESSIONS_DIR`` for the most recently modified session
     file and extracts token_estimate.context_pct.
     """
     import yaml as _yaml
 
-    sessions_dir = Path("/tmp/dev-loop/sessions")
+    sessions_dir = SESSIONS_DIR
     if not sessions_dir.is_dir():
         return None
 
@@ -380,6 +381,7 @@ def spawn_agent(
     cost_ceiling: float = DEFAULT_COST_CEILING,
     max_turns: int | None = None,
     max_context_pct: int = 75,
+    timeout_seconds: float = 300.0,
 ) -> dict:
     """Spawn a Claude Code agent in a worktree and return its output."""
     config = AgentConfig(
@@ -389,6 +391,7 @@ def spawn_agent(
         allowed_tools=allowed_tools,
         cost_ceiling=cost_ceiling,
         max_turns=max_turns,
+        timeout_seconds=timeout_seconds,
     )
 
     with tracer.start_as_current_span(

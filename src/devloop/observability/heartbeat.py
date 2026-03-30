@@ -131,7 +131,7 @@ def stop_heartbeat(
 def find_stale_runs(max_age_minutes: int = 5) -> list[dict]:
     """Scan for worktree metadata files whose heartbeat has gone stale.
 
-    Looks in ``/tmp/dev-loop/worktrees/`` for ``.dev-loop-metadata.json``
+    Looks in ``WORKTREE_BASE`` for ``.dev-loop-metadata.json``
     files. A run is considered stale if the file's ``last_heartbeat``
     timestamp (or ``mtime`` as fallback) is older than *max_age_minutes*.
 

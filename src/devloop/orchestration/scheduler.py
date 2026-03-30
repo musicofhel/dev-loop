@@ -17,10 +17,9 @@ from pathlib import Path
 import yaml
 
 from devloop.intake.ambiguity import defer_ambiguous_issue, detect_ambiguity
+from devloop.paths import LOCK_DIR
 
 logger = logging.getLogger(__name__)
-
-LOCK_DIR = Path("/tmp/dev-loop/locks")
 CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "scheduling.yaml"
 
 

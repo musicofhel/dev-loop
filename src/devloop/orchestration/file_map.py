@@ -16,6 +16,8 @@ from pathlib import Path
 
 from opentelemetry import trace
 
+from devloop.paths import CACHE_DIR
+
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -41,7 +43,6 @@ _EXT_TO_LANG: dict[str, str] = {
     ".css": "CSS",
 }
 
-CACHE_DIR = Path("/tmp/dev-loop/cache")
 CACHE_TTL_SECONDS = 3600  # 1 hour
 
 

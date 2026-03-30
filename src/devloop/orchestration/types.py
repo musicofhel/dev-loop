@@ -28,6 +28,7 @@ class PersonaConfig(BaseModel):
     model: str = "sonnet"
     max_turns_default: int = 15
     max_context_pct: int = 75
+    timeout_seconds: int = 300
 
 
 class ClaudeOverlay(BaseModel):

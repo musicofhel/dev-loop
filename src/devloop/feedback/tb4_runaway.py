@@ -43,6 +43,7 @@ from devloop.orchestration.server import (
     select_persona,
     setup_worktree,
 )
+from devloop.paths import HANDOFF_DIR
 from devloop.runtime.server import spawn_agent
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,6 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-HANDOFF_DIR = Path("/tmp/dev-loop/handoffs")
 MAX_CONTEXT_RESTARTS = 3  # hard cap on context restarts per pipeline run
 
 # ---------------------------------------------------------------------------
@@ -355,6 +355,7 @@ def run_tb4(
                     max_turns=remaining_turns,
                     allowed_tools=allowed_tools,
                     max_context_pct=max_context_pct,
+                    timeout_seconds=persona_result.get("timeout_seconds", 300),
                 )
 
                 agent_exit = agent_result.get("exit_code", -1)
@@ -469,6 +470,7 @@ def run_tb4(
                         max_turns=remaining_turns,
                         allowed_tools=allowed_tools,
                         max_context_pct=max_context_pct,
+                        timeout_seconds=persona_result.get("timeout_seconds", 300),
                     )
 
                     agent_exit = agent_result.get("exit_code", -1)

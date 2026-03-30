@@ -341,6 +341,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     model=persona_result.get("model", "sonnet"),
                     allowed_tools=allowed_tools,
                     max_context_pct=max_context_pct,
+                    timeout_seconds=persona_result.get("timeout_seconds", 300),
                 )
 
                 agent_exit = agent_result.get("exit_code", -1)
@@ -431,6 +432,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                         model=persona_result.get("model", "sonnet"),
                         allowed_tools=allowed_tools,
                         max_context_pct=max_context_pct,
+                        timeout_seconds=persona_result.get("timeout_seconds", 300),
                     )
 
                     agent_exit = agent_result.get("exit_code", -1)

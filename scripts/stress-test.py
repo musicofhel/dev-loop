@@ -22,11 +22,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).parent.parent
+
+# Add project src to path so we can import devloop.paths
+import sys
+sys.path.insert(0, str(REPO / "src"))
+from devloop.paths import RESULTS_DIR, SESSIONS_DIR, WORKTREE_BASE
+
 PROMPT_BENCH = Path.home() / "prompt-bench"
 OOTESTPROJECT1 = Path.home() / "OOTestProject1"
-RESULTS_BASE = Path("/tmp/dev-loop/stress-test")
-WORKTREE_BASE = Path("/tmp/dev-loop/worktrees")
-SESSION_BASE = Path("/tmp/dev-loop/sessions")
+RESULTS_BASE = RESULTS_DIR
+SESSION_BASE = SESSIONS_DIR
 
 
 def ts() -> str:
@@ -127,7 +132,7 @@ def run_pipeline(func_name: str, *args) -> dict:
     result = subprocess.run(
         ["uv", "run", "python", "-c", code],
         capture_output=True, text=True, check=False,
-        timeout=600, cwd=str(REPO),
+        timeout=1320, cwd=str(REPO),  # 1200s pipeline cap + 120s grace
         env={**os.environ, "CLAUDECODE": ""},  # unset CLAUDECODE
     )
     # Find the JSON line in stdout (skip log noise)
