@@ -157,8 +157,8 @@ def run_tb1(issue_id: str, run_log) -> dict:
 
 
 def run_tb2(issue_id: str, run_log) -> dict:
-    log(f"  TB-2 (forced retry) issue={issue_id}", run_log)
-    return run_pipeline("run_tb2", issue_id, str(OOTESTPROJECT1), True)
+    log(f"  TB-2 (forced retry, max_retries=3) issue={issue_id}", run_log)
+    return run_pipeline("run_tb2", issue_id, str(OOTESTPROJECT1), 3, True)
 
 
 def run_tb3(issue_id: str, run_log) -> dict:
