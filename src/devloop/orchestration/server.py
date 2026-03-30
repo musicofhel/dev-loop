@@ -255,6 +255,25 @@ def setup_worktree(issue_id: str, repo_path: str) -> dict:
         metadata_path = worktree_path / ".dev-loop-metadata.json"
         metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
 
+        # Install Python package in worktree so agent and gates can import it
+        pyproject = worktree_path / "pyproject.toml"
+        if pyproject.exists():
+            install_result = subprocess.run(
+                ["uv", "sync", "--dev"],
+                capture_output=True,
+                text=True,
+                cwd=str(worktree_path),
+                timeout=120,
+            )
+            if install_result.returncode != 0:
+                logger.warning(
+                    "uv sync failed in worktree %s: %s",
+                    worktree_path,
+                    install_result.stderr[:200],
+                )
+            else:
+                span.set_attribute("worktree.python_installed", True)
+
         span.set_attribute("worktree.path", str(worktree_path))
         span.set_attribute("worktree.branch", branch_name)
         span.set_status(trace.StatusCode.OK)

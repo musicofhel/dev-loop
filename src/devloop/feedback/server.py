@@ -374,6 +374,23 @@ def retry_agent(
         span.set_attribute("runtime.input_tokens", agent_result.get("input_tokens", 0))
         span.set_attribute("runtime.output_tokens", agent_result.get("output_tokens", 0))
 
+        # Save retry session for training data export
+        agent_stdout = agent_result.get("stdout", "")
+        if agent_stdout:
+            try:
+                from devloop.feedback.tb6_replay import _save_session
+                retry_session_id = f"{issue_id}-retry{attempt}"
+                _save_session(retry_session_id, agent_stdout, {
+                    "issue_id": issue_id,
+                    "attempt": attempt,
+                    "type": "retry",
+                    "prompt_text": prompt_text[:2000],
+                })
+                span.set_attribute("retry.session_saved", True)
+                span.set_attribute("retry.session_id", retry_session_id)
+            except Exception as exc:
+                logger.warning("Failed to save retry session: %s", exc)
+
         # Extract usage stats to pass through in the result dict
         agent_usage = {
             "num_turns": agent_result.get("num_turns", 0),

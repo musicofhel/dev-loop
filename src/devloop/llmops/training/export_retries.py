@@ -174,6 +174,51 @@ def export_retries(
                 example["metadata"]["source"] = "retry_session"
                 examples.append(example)
 
+        # Also extract from retry session metadata files (saved by retry_agent)
+        meta_pattern = os.path.join(
+            sessions_dir or os.path.expanduser("~/.local/share/dev-loop/sessions"),
+            "*-retry*.meta.json",
+        )
+        for meta_path in sorted(glob.glob(meta_pattern)):
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                continue
+            if meta.get("type") != "retry" or not meta.get("prompt_text"):
+                continue
+            prompt_text = meta["prompt_text"]
+            if not _is_retry_prompt(prompt_text):
+                continue
+            # Check if we already extracted this from NDJSON events
+            session_id = Path(meta_path).stem.replace(".meta", "")
+            if any(e["metadata"].get("session_id") == session_id for e in examples):
+                continue
+            # Build example from metadata
+            ndjson_path = meta_path.replace(".meta.json", ".ndjson")
+            events = _load_session_events(ndjson_path) if os.path.exists(ndjson_path) else []
+            # Check outcome: did the retry agent's gates pass?
+            retry_succeeded = any(
+                "passed" in str(evt.get("message", {}).get("content", "")).lower()
+                for evt in events[-10:]
+            )
+            examples.append({
+                "inputs": {
+                    "failure_log": prompt_text,
+                    "original_task": meta.get("issue_id", ""),
+                    "gate_results": "[]",
+                },
+                "outputs": {
+                    "retry_instructions": prompt_text,
+                    "retry_succeeded": str(retry_succeeded),
+                },
+                "metadata": {
+                    "session_id": session_id,
+                    "source": "retry_metadata",
+                    "attempt": meta.get("attempt", 0),
+                },
+            })
+
         span.set_attribute("llmops.sessions_scanned", len(files))
         span.set_attribute("llmops.examples_exported", len(examples))
 
