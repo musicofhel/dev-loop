@@ -35,8 +35,15 @@ Agent Output (diff + commits)
 ┌─────────────────┐
 │ Gate 0: Sanity   │ ← Does the code compile/parse? Are tests passing?
 └────────┬────────┘
-         │ pass
-         ▼
+         │ pass ──────────────────────────┐
+         │ FAIL + differential enabled    │
+         ▼                                │
+┌─────────────────────┐                   │
+│ Gate 0.1: Differential │ ← Baseline vs HEAD test comparison (opt-in)
+└────────┬────────────┘                   │
+         │ pass (fewer failures than      │
+         │       baseline = progress)     │
+         ▼◄───────────────────────────────┘
 ┌─────────────────┐
 │ Gate 0.5: Relevance │ ← Does the diff match the ticket?
 └────────┬────────┘
@@ -64,6 +71,7 @@ Agent Output (diff + commits)
          ▼
        PR Created
 
+Gate 0.1 (Differential) only runs when Gate 0 fails AND differential is enabled.
 Gate 5 (Cost/Usage) is called separately after PR creation.
 Gate 1 (ATDD) is not yet implemented.
 ```
@@ -92,6 +100,21 @@ cargo check            # Rust
 ```
 - **Pass**: exit code 0
 - **Fail**: structured error with file:line:message
+
+### Gate 0.1: Differential Test Check
+Tool: Custom baseline-vs-HEAD test comparison (built in-house)
+
+Opt-in gate that only runs when Gate 0 fails. Compares test results between the merge-base (baseline) and the agent's HEAD to determine whether the agent's changes made things better or worse.
+
+- Enabled per-project via `quality_gates.differential.enabled: true` in project config
+- Finds the merge-base commit, runs tests on both baseline and HEAD
+- If HEAD has fewer failures than baseline, the agent is making progress -- gate passes
+- If HEAD introduced new failures, gate fails with a diff of which tests regressed
+- Skips gracefully if project type is unknown or test output is unparsable
+
+This prevents the feedback loop from retrying an agent that is actually fixing pre-existing test failures. Without it, Gate 0 would reject any commit to a repo that already had broken tests.
+
+Implementation: `gates/server.py:run_gate_01_differential`
 
 ### Gate 0.5: Task Relevance Check
 Tool: Keyword overlap analysis between issue description and diff content.

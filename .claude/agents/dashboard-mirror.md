@@ -16,15 +16,17 @@ The source code lives in `~/dashboard-mirror`. Prompts and output live in `tools
 ## Pipeline Overview
 
 ```
-Phase 1: Collection (shell commands — 8 steps)
-  dm-health          → output/_baseline/oo-health.json, oo-config.json, oo-cluster.json
+Phase 1: Collection (shell commands — 3 implemented)
+  dm-collect         → output/*/screenshots, dom, api, timing, meta
   dm-schema          → output/_baseline/stream-schema.json, cross-dashboard-map.json
+  dm-chain           → output/*/config/{source,transformed,sent,stored,chain-diff}
+
+  (Planned, not yet implemented:)
+  dm-health          → output/_baseline/oo-health.json, oo-config.json, oo-cluster.json
   dm-alerts          → output/_baseline/alerts.json, alert-history.json, alert-drift.json, ...
   dm-functions       → output/_baseline/functions.json, pipelines.json, pipeline-streams.json, ...
   dm-traces          → output/_baseline/trace-services.json, trace-operations.json, trace-structure.json, ...
   dm-supplementary   → output/_baseline/saved-views.json, reports.json, annotations.json, folders.json
-  dm-chain           → output/*/config/{source,transformed,sent,stored,chain-diff}
-  dm-collect         → output/*/screenshots, dom, api, timing, meta
 
 Phase 2: Baseline Analysis (1 agent)
   baseline     → output/_baseline/baseline-report.md
@@ -44,27 +46,16 @@ For N dashboards: **4N + 1 agents** total.
 
 Run from `~/dashboard-mirror`:
 
-**Recommended — run everything at once:**
+**Available collectors (3 implemented):**
 
 ```bash
 cd ~/dashboard-mirror
-uv run dm-collect-all                   # Full pipeline (~4-6 min)
-uv run dm-collect-all --skip-playwright # API-only (~30-40s)
-```
-
-**Or run individual collectors:**
-
-```bash
-cd ~/dashboard-mirror
-uv run dm-health                                           # ~5s  — OO health, config, cluster
-uv run dm-schema                                           # ~10s — stream schemas + cross-map
-uv run dm-alerts                                           # ~10s — alerts, incidents, drift detection
-uv run dm-functions                                        # ~5s  — VRL functions, pipelines, VRL analysis
-uv run dm-traces                                           # ~15s — services, operations, structure, durations
-uv run dm-supplementary                                    # ~5s  — views, reports, annotations, folders
-uv run dm-chain --config-dir ~/dev-loop/config/dashboards  # ~5s  — config chain diffs
 uv run dm-collect                                          # ~3-5 min — full Playwright capture
+uv run dm-schema                                           # ~10s — stream schemas + cross-map
+uv run dm-chain --config-dir ~/dev-loop/config/dashboards  # ~5s  — config chain diffs
 ```
+
+**Not yet implemented:** `dm-health`, `dm-alerts`, `dm-functions`, `dm-traces`, `dm-supplementary`, `dm-collect-all`.
 
 To target specific dashboards (Playwright only):
 ```bash

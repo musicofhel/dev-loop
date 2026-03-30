@@ -54,7 +54,7 @@ Three tiers of protection, from instant to thorough:
 
 Three check modules run on every Write, Edit, or Bash call the agent makes:
 
-- **Deny List** — 17 patterns block writes to sensitive files (`.env`, `.ssh/*`, `*.key`, etc.)
+- **Deny List** — 15 patterns block writes to sensitive files (`.env`, `.ssh/*`, `*.key`, etc.)
 - **Dangerous Ops** — 25 patterns warn or block risky commands (`rm -rf`, `curl | sh`, `git push --force`, etc.)
 - **Secret Scanner** — 15 patterns catch API keys, private keys, and database strings in file content.
 
@@ -66,7 +66,7 @@ All patterns are configurable per-project.
   <img alt="Hook integration — Claude Code to daemon" src="docs/diagrams/hook-flow.svg" width="500">
 </picture>
 
-Six hooks connect Claude Code to the safety daemon:
+Five hooks connect Claude Code to the safety daemon:
 
 | Hook | When it fires | What it does |
 |------|--------------|-------------|
@@ -75,7 +75,6 @@ Six hooks connect Claude Code to the safety daemon:
 | `SessionStart` | Session begins | Registers the session, injects context from prior sessions |
 | `SessionEnd` | Session ends | Saves session state, exports telemetry |
 | `Stop` | After each turn | Warns if the agent is using too much context (85% threshold) |
-| `PreCompact` | Before context compaction | Saves session state before context is trimmed |
 
 Hooks are **fail-open** — if the daemon is unavailable, all tool calls proceed normally.
 
@@ -223,8 +222,8 @@ Once running, dev-loop silently protects every Claude Code session. No changes t
 | Tier 1 latency | < 5ms |
 | Hook latency | ~6ms (incl. process startup) |
 | Binary size | 6.5 MB |
-| **Total tests** | **978** |
-| Python tests | 689 |
+| **Total tests** | **997** |
+| Python tests | 708 |
 | Rust tests | 289 |
 | Conformance tests | 106 |
 | Tracer bullets | 7/7 passing |
@@ -248,7 +247,7 @@ Claude Code agents that ship with dev-loop (`.claude/agents/`):
 | [Scoring Rubric](docs/scoring-rubric.md) | 7-dimension tool evaluation matrix |
 | [Test Repos](docs/test-repos.md) | Validation targets and pass criteria |
 | [Network Requirements](docs/network-requirements.md) | External APIs, ports, degradation behavior |
-| [Ambient Layer Plan](docs/ambient-layer-plan.md) | Full daemon design spec (~900 lines) |
+| [Ambient Layer Plan](docs/ambient-layer-plan.md) | Full daemon design spec (~1,200 lines) |
 | [Layer Docs](docs/layers/) | Per-layer design intent (7 docs, ~1000 lines) |
 | [ADRs](docs/adrs/) | Architecture decision records |
 
