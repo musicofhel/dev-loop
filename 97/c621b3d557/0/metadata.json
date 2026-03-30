@@ -1,0 +1,33 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "97c621b3d557",
+  "session_id": "dd561c41-4e06-404f-b031-3f5e6337d2a0",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-30T15:12:10.100029825Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".beads/issues.jsonl"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2a64136a26b0",
+  "token_usage": {
+    "input_tokens": 3,
+    "cache_creation_tokens": 18048,
+    "cache_read_tokens": 0,
+    "output_tokens": 835,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-30T15:12:10.073615221Z",
+    "agent_lines": 0,
+    "human_added": 272,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 272,
+    "agent_percentage": 0
+  }
+}
