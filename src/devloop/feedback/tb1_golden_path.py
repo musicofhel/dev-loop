@@ -524,6 +524,9 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
                     worktree_path=worktree_path,
                     issue_title=issue_title,
                     issue_description=issue_description,
+                    num_turns=agent_result.get("num_turns", 0),
+                    input_tokens=agent_result.get("input_tokens", 0),
+                    output_tokens=agent_result.get("output_tokens", 0),
                 )
                 try:
                     gate_suite = GateSuiteResult(**gate_raw)
@@ -888,6 +891,16 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
             # Unclaim issue if pipeline didn't succeed (M8 fix)
             if not pipeline_success:
                 _unclaim_issue(issue_id, repo_path=repo_path)
+
+            # Phase 13: Post-pipeline feedback channels (best-effort)
+            try:
+                from devloop.feedback.post_pipeline import run_post_pipeline
+                run_post_pipeline(
+                    issue_id=issue_id,
+                    success=pipeline_success,
+                )
+            except Exception:
+                pass  # Never fail the pipeline for post-pipeline channels
 
             # Flush spans (M1 fix — TB-1 was missing force_flush)
             if provider is not None:

@@ -488,6 +488,9 @@ def run_tb6(
                         worktree_path=worktree_path,
                         issue_title=issue_title,
                         issue_description=issue_description,
+                        num_turns=agent_result.get("num_turns", 0),
+                        input_tokens=agent_result.get("input_tokens", 0),
+                        output_tokens=agent_result.get("output_tokens", 0),
                     )
                 try:
                     gate_suite = GateSuiteResult(**gate_raw)
@@ -653,6 +656,15 @@ def run_tb6(
                     logger.warning("Failed to clean up worktree for %s", issue_id)
             if not pipeline_success and worktree_path is not None:
                 _unclaim_issue(issue_id, repo_path=repo_path)
+            # Phase 13: Post-pipeline feedback channels (best-effort)
+            try:
+                from devloop.feedback.post_pipeline import run_post_pipeline
+                run_post_pipeline(
+                    issue_id=issue_id,
+                    success=pipeline_success,
+                )
+            except Exception:
+                pass  # Never fail the pipeline for post-pipeline channels
             try:
                 with tracer_tb6.start_as_current_span(
                     "tb6.phase.cleanup", attributes={"tb6.phase": "cleanup"},

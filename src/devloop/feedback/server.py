@@ -420,6 +420,9 @@ def retry_agent(
             worktree_path=worktree_path,
             issue_title=issue_title,
             issue_description=issue_description,
+            num_turns=agent_result.get("num_turns", 0),
+            input_tokens=agent_result.get("input_tokens", 0),
+            output_tokens=agent_result.get("output_tokens", 0),
         )
         try:
             gate_suite = GateSuiteResult(**gate_raw)

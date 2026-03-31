@@ -637,7 +637,7 @@ class TestRunAllGatesSequencing:
             mock_g05.assert_not_called()  # Gate 0.5 never ran
 
     def test_all_gates_run_on_success(self):
-        """All 6 gates run when each passes."""
+        """All 7 gates run when each passes."""
         from devloop.gates.server import run_all_gates
 
         gate_pass = lambda name: {
@@ -653,13 +653,14 @@ class TestRunAllGatesSequencing:
              patch("devloop.gates.server.run_gate_2_secrets", return_value=gate_pass("gate_2_secrets")), \
              patch("devloop.gates.server.run_gate_25_dangerous_ops", return_value=gate_pass("gate_25_dangerous_ops")), \
              patch("devloop.gates.server.run_gate_3_security", return_value=gate_pass("gate_3_security")), \
-             patch("devloop.gates.server.run_gate_4_review", return_value=gate_pass("gate_4_review")):
+             patch("devloop.gates.server.run_gate_4_review", return_value=gate_pass("gate_4_review")), \
+             patch("devloop.gates.server.run_gate_5_cost", return_value=gate_pass("gate_5_cost")):
 
             result = run_all_gates("/tmp/wt", "Fix bug", "Description")
 
             assert result["overall_passed"] is True
             assert result["first_failure"] is None
-            assert len(result["gate_results"]) == 6
+            assert len(result["gate_results"]) == 7
 
     def test_skip_propagation(self):
         """Skipped gates don't cause fail-fast."""
@@ -685,9 +686,10 @@ class TestRunAllGatesSequencing:
              patch("devloop.gates.server.run_gate_2_secrets", return_value=gate_pass("gate_2_secrets")), \
              patch("devloop.gates.server.run_gate_25_dangerous_ops", return_value=gate_pass("gate_25_dangerous_ops")), \
              patch("devloop.gates.server.run_gate_3_security", return_value=gate_skip("gate_3_security")), \
-             patch("devloop.gates.server.run_gate_4_review", return_value=gate_pass("gate_4_review")):
+             patch("devloop.gates.server.run_gate_4_review", return_value=gate_pass("gate_4_review")), \
+             patch("devloop.gates.server.run_gate_5_cost", return_value=gate_pass("gate_5_cost")):
 
             result = run_all_gates("/tmp/wt", "Fix bug", "Description")
 
             assert result["overall_passed"] is True
-            assert len(result["gate_results"]) == 6
+            assert len(result["gate_results"]) == 7

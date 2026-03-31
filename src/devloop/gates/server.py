@@ -1976,9 +1976,10 @@ def run_gate_5_cost(
         "Run all quality gates in fail-fast order: "
         "Gate 0 (sanity) → [Gate 0.1 (differential, if Gate 0 fails)] → "
         "Gate 0.5 (relevance) → Gate 2 (secrets) → "
-        "Gate 2.5 (dangerous ops) → Gate 3 (security) → Gate 4 (review). "
-        "Stops at first failure. Returns overall pass/fail with per-gate results. "
-        "Gate 5 (cost) is NOT included — call it separately with usage data."
+        "Gate 2.5 (dangerous ops) → Gate 3 (security) → Gate 4 (review) → "
+        "Gate 5 (cost, informational). "
+        "Stops at first failure (gates 0-4). Gate 5 is informational and never fails the suite. "
+        "Returns overall pass/fail with per-gate results."
     ),
     tags={"gates", "suite"},
 )
@@ -1986,8 +1987,11 @@ def run_all_gates(
     worktree_path: str,
     issue_title: str,
     issue_description: str,
+    num_turns: int = 0,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
 ) -> dict:
-    """Run gates 0 → 0.5 → 2 → 2.5 → 3 → 4 sequentially, stopping at first failure."""
+    """Run gates 0 → 0.5 → 2 → 2.5 → 3 → 4 → 5 sequentially, stopping at first failure (0-4)."""
     with tracer.start_as_current_span(
         "gates.run_all",
         attributes={"gate.name": "run_all"},
@@ -1995,7 +1999,7 @@ def run_all_gates(
         suite_start = time.monotonic()
         gate_results: list[GateResult] = []
         first_failure: str | None = None
-        total_gates = 6
+        total_gates = 7
 
         def _fail_fast(gate_result: GateResult) -> dict | None:
             """Check if we should stop. Returns suite result dict on failure, None to continue."""
@@ -2068,6 +2072,14 @@ def run_all_gates(
 
         if not g4.passed:
             first_failure = g4.gate_name
+
+        # --- Gate 5: Cost (informational, never fail-fast) ---
+        g5 = GateResult(**run_gate_5_cost(
+            num_turns=num_turns,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        ))
+        gate_results.append(g5)
 
         elapsed = time.monotonic() - suite_start
         overall_passed = all(g.passed or g.skipped for g in gate_results)
