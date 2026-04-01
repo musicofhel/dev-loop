@@ -35,6 +35,7 @@ from devloop.feedback.tb4_runaway import (
 from devloop.feedback.tb5_cascade import find_cascade_targets, run_tb5
 from devloop.feedback.tb6_replay import (
     _generate_session_id,
+    _parse_session_events,
     _save_session,
     _suggest_claude_md_fix,
 )
@@ -109,6 +110,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
         heartbeat_thread = None
         worktree_path: str | None = None
         persona_name: str | None = None
+        agent_stdout: str = ""
         pipeline_success = False
         retries_used = 0
         max_retries = 2
@@ -373,7 +375,7 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
             session_id: str | None = None
             session_path: str | None = None
             try:
-                agent_stdout = agent_result.get("stdout", "")
+                agent_stdout = agent_result.get("stdout", "") or ""
                 if agent_stdout:
                     session_id = _generate_session_id(issue_id)
                     session_path = _save_session(session_id, agent_stdout, {
@@ -895,8 +897,10 @@ def run_tb1(issue_id: str, repo_path: str) -> dict:
             # Phase 13: Post-pipeline feedback channels (best-effort)
             try:
                 from devloop.feedback.post_pipeline import run_post_pipeline
+                _session_events = _parse_session_events(agent_stdout) if agent_stdout else None
                 run_post_pipeline(
                     issue_id=issue_id,
+                    session_events=_session_events,
                     success=pipeline_success,
                 )
             except Exception:

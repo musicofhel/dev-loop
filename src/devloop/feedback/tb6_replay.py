@@ -661,6 +661,7 @@ def run_tb6(
                 from devloop.feedback.post_pipeline import run_post_pipeline
                 run_post_pipeline(
                     issue_id=issue_id,
+                    session_events=session_events if session_events else None,
                     success=pipeline_success,
                 )
             except Exception:

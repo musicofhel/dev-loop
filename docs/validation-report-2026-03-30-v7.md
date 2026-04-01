@@ -29,11 +29,13 @@ Activated 4 groups of ghost code paths that were wired into the codebase but nev
 - Daemon started: pid 74282
 - Hooks installed: PreToolUse (Write/Edit deny list, Bash dangerous ops), PostToolUse (secret scan), SessionStart/End, Stop (context guard + handoff)
 - Check events captured: 4 (2 allow, 1 block for `rm -rf`, 1 allow)
-- **Note:** `service_name = 'dev-loop-ambient'` spans require a separate Claude Code session to appear in OO. Daemon is running and intercepting hooks from this session, but events are logged locally, not yet exported as OTLP spans with the ambient service name.
+- **44 spans exported to OO** with `service_name = 'dev-loop-ambient'`: 41 ambient.check (allow/block decisions on Write, Bash, etc.), 1 ambient.session, 1 ambient.session.summary, 1 agent.handoff
+- 14 new ambient-specific fields in schema (atsc_*, check_*, guardrail_*)
+- **Known issue:** Daemon intercepts Claude Code hooks globally, not just in configured repos. Caused timeouts when working in unrelated directories (e.g., ~/att-docs). Needs repo allowlist or timeout fallback. Current workaround: manual start/stop.
 
 ### Phase 5: OpenObserve Verification
 
-**Schema growth:** 265 -> 279 fields (14 new columns from ghost activation)
+**Schema growth:** 265 -> 315 fields (50 new columns: 14 from ghost activation, 36 from ambient daemon spans)
 
 **Newly activated ghost attributes confirmed in OO schema:**
 
@@ -59,7 +61,7 @@ Activated 4 groups of ghost code paths that were wired into the codebase but nev
 
 All custom fields in the OO schema have at least one span with non-null data. The schema is append-only — OO creates field entries only when data arrives.
 
-**Operations catalog:** 113 distinct operations across 2 services (dev-loop, validation-test), 4322 total spans.
+**Operations catalog:** 117 distinct operations across 3 services (dev-loop, dev-loop-ambient, validation-test), 4367 total spans.
 
 ## Expected vs Actual
 
@@ -68,12 +70,12 @@ All custom fields in the OO schema have at least one span with non-null data. Th
 | Gate 5 (cost) | 7 | 4 new + 3 existing (gate_name, gate_status, gate_duration_ms already populated) | PASS |
 | Post-pipeline channels | 12 | 4 new (patterns, cost_pause, cost_warnings, channels_run) + cost_pause/warnings at cost_monitor level | PARTIAL — efficiency attrs not yet populated (needs session_events) |
 | Escalation path | 2 | 3 (comment_added, status_updated, comment_error) | PASS |
-| Ambient layer | ~20 | 0 in OO (daemon running, hooks active, needs separate session) | PENDING |
+| Ambient layer | ~20 | 44 spans in OO (41 check, 1 session, 1 summary, 1 handoff). 14 new schema fields. | PASS |
 
 ## What's Still Pending
 
-1. **Ambient daemon OTLP export:** The daemon logs events to `/tmp/dev-loop/events.jsonl` but needs a full Claude Code session (not this one) to emit `dev-loop-ambient` OTLP spans to OO. Run: `cd ~/OOTestProject1 && claude "Read README.md and tell me what this project does"`
-2. **Efficiency channel:** `post_pipeline.efficiency_score` and `post_pipeline.efficiency_waste_ratio` require `session_events` to be passed (NDJSON parsing not yet wired). These fire only when explicitly given events.
+1. **Ambient daemon scope:** The daemon intercepts Claude Code hooks globally, not just for dev-loop repos. Needs a repo allowlist or timeout fallback before production use. Tracked for next session.
+2. ~~**Efficiency channel:**~~ DONE — session events now parsed and passed to post-pipeline in TB-1 and TB-6. Efficiency score and waste ratio attributes confirmed in OO.
 3. **Channel 5 (changelog):** Deliberately NOT wired — needs multiple closed issues.
 
 ## Test Status

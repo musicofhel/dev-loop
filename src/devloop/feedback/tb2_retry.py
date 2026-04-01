@@ -795,6 +795,7 @@ def run_tb2(
                 from devloop.feedback.post_pipeline import run_post_pipeline
                 run_post_pipeline(
                     issue_id=issue_id,
+                    session_events=None,
                     success=pipeline_success,
                 )
             except Exception:
