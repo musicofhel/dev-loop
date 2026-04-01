@@ -27,10 +27,18 @@ pub enum Command {
         #[command(subcommand)]
         hook: HookCommand,
     },
-    /// Install dl hooks into ~/.claude/settings.json
-    Install,
-    /// Remove dl hooks from ~/.claude/settings.json
-    Uninstall,
+    /// Install dl hooks into ~/.claude/settings.json (or .claude/settings.local.json with --project)
+    Install {
+        /// Install into .claude/settings.local.json in cwd instead of global settings
+        #[arg(long)]
+        project: bool,
+    },
+    /// Remove dl hooks from ~/.claude/settings.json (or .claude/settings.local.json with --project)
+    Uninstall {
+        /// Remove from .claude/settings.local.json in cwd instead of global settings
+        #[arg(long)]
+        project: bool,
+    },
     /// Enable the ambient layer
     Enable {
         /// Enable specific tier only (1 or 2)

@@ -647,11 +647,11 @@ pub fn session_end() {
 ///
 /// Fires after every assistant turn. Checks context usage via
 /// transcript file size heuristic. If over threshold (default 85%),
-/// writes handoff YAML and outputs a warning via additionalContext.
+/// writes handoff YAML for the next session's SessionStart to pick up.
 ///
 /// Protocol:
-/// - Exit 0 (no output) = continue normally
-/// - Exit 0 + JSON with additionalContext = warn about context usage
+/// - Exit 0 (no output) = allow Claude to stop normally
+/// - Handoff YAML persists context state; SessionStart reads it
 pub fn stop() {
     let input = read_stdin();
     let data: serde_json::Value = match serde_json::from_str(&input) {
@@ -703,19 +703,16 @@ pub fn stop() {
     // Over threshold: write handoff YAML
     let handoff_path = write_session_handoff(session_id, cwd, "stop_guard");
 
-    // Output context warning
+    // Log to stderr (not stdout — Claude Code validates stdout JSON schema).
+    // Handoff YAML persists context state for next SessionStart.
     let pct_display = (est_pct * 100.0).round() as u32;
-    let handoff_note = match handoff_path {
-        Some(p) => format!("Auto-handoff written to {}", p.display()),
-        None => "Handoff write failed.".to_string(),
+    match handoff_path {
+        Some(p) => eprintln!(
+            "dl: context at ~{pct_display}%, handoff written to {}",
+            p.display()
+        ),
+        None => eprintln!("dl: context at ~{pct_display}%, handoff write failed"),
     };
-
-    let output = serde_json::json!({
-        "stopReason": format!(
-            "Context at ~{pct_display}%. {handoff_note}. Consider running /compact or starting a new session."
-        )
-    });
-    println!("{output}");
 }
 
 /// PreCompact hook: write handoff YAML before compaction.

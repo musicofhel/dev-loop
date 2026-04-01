@@ -476,7 +476,7 @@ fn merge(
     };
 
     // Enabled: global.enabled AND repo.ambient (if repo config exists)
-    let enabled = global.enabled && repo_cfg.map_or(true, |r| r.ambient);
+    let enabled = global.enabled && repo_cfg.map_or(false, |r| r.ambient);
 
     // Merge deny_list: global extra/remove/allow + repo extra/remove/allow
     let mut deny_list_extra = global.deny_list.extra_patterns.clone();
@@ -911,7 +911,8 @@ checkpoint:
         };
 
         let merged = merge(&global, None);
-        assert!(merged.enabled);
+        // No repo config → disabled (opt-in: repos must have .devloop.yaml)
+        assert!(!merged.enabled);
         assert_eq!(merged.deny_list_extra, vec!["*.vault"]);
         assert!(merged.deny_list_remove.is_empty());
         assert_eq!(merged.dangerous_ops_allow, vec!["rm -rf node_modules"]);

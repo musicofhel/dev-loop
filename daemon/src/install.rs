@@ -1,14 +1,21 @@
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
-fn settings_path() -> PathBuf {
+fn global_settings_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join(".claude")
         .join("settings.json")
 }
 
-/// The hook entries we install into settings.json.
+fn project_settings_path() -> PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".claude")
+        .join("settings.local.json")
+}
+
+/// The hook entries we install into global settings.json (no timeout).
 fn dl_hook_entries() -> Value {
     json!({
         "PreToolUse": [
@@ -45,6 +52,43 @@ fn dl_hook_entries() -> Value {
     })
 }
 
+/// Hook entries with per-hook timeout for project-level installs.
+fn dl_hook_entries_project() -> Value {
+    json!({
+        "PreToolUse": [
+            {
+                "matcher": "Write|Edit",
+                "hooks": [{ "type": "command", "command": "dl hook pre-tool-use", "timeout": 5 }]
+            },
+            {
+                "matcher": "Bash",
+                "hooks": [{ "type": "command", "command": "dl hook pre-tool-use", "timeout": 5 }]
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": "Write|Edit",
+                "hooks": [{ "type": "command", "command": "dl hook post-tool-use", "timeout": 5 }]
+            }
+        ],
+        "SessionStart": [
+            {
+                "hooks": [{ "type": "command", "command": "dl hook session-start", "timeout": 5 }]
+            }
+        ],
+        "SessionEnd": [
+            {
+                "hooks": [{ "type": "command", "command": "dl hook session-end", "timeout": 5 }]
+            }
+        ],
+        "Stop": [
+            {
+                "hooks": [{ "type": "command", "command": "dl hook stop", "timeout": 10 }]
+            }
+        ]
+    })
+}
+
 /// Returns true if a hook entry was installed by dl (command starts with "dl hook").
 fn is_dl_hook_entry(entry: &Value) -> bool {
     entry
@@ -60,10 +104,15 @@ fn is_dl_hook_entry(entry: &Value) -> bool {
         .unwrap_or(false)
 }
 
-/// Install dl hooks into ~/.claude/settings.json.
+/// Install dl hooks into settings file.
+/// Global: ~/.claude/settings.json. Project (--project): .claude/settings.local.json in cwd.
 /// Preserves all existing hooks (idempotent — removes old dl hooks first).
-pub fn install() {
-    let path = settings_path();
+pub fn install(project: bool) {
+    let path = if project {
+        project_settings_path()
+    } else {
+        global_settings_path()
+    };
 
     // Read existing settings
     let mut settings: Value = if path.exists() {
@@ -83,7 +132,11 @@ pub fn install() {
         settings["hooks"] = json!({});
     }
 
-    let our_hooks = dl_hook_entries();
+    let our_hooks = if project {
+        dl_hook_entries_project()
+    } else {
+        dl_hook_entries()
+    };
     let hooks = settings["hooks"].as_object_mut().unwrap();
 
     for (event_name, entries) in our_hooks.as_object().unwrap() {
@@ -113,18 +166,33 @@ pub fn install() {
     });
 
     println!("Installed dl hooks into {}", path.display());
-    println!(
-        "  PreToolUse:  Write|Edit (deny list), Bash (dangerous ops)\n  \
-         PostToolUse: Write|Edit (secret scan)\n  \
-         SessionStart, SessionEnd\n  \
-         Stop: context guard + handoff"
-    );
+    if project {
+        println!(
+            "  (project-level, 5s timeout per hook, 10s for Stop)\n  \
+             PreToolUse:  Write|Edit (deny list), Bash (dangerous ops)\n  \
+             PostToolUse: Write|Edit (secret scan)\n  \
+             SessionStart, SessionEnd\n  \
+             Stop: context guard + handoff"
+        );
+    } else {
+        println!(
+            "  PreToolUse:  Write|Edit (deny list), Bash (dangerous ops)\n  \
+             PostToolUse: Write|Edit (secret scan)\n  \
+             SessionStart, SessionEnd\n  \
+             Stop: context guard + handoff"
+        );
+    }
 }
 
-/// Remove all dl hook entries from ~/.claude/settings.json.
+/// Remove all dl hook entries from settings file.
+/// Global: ~/.claude/settings.json. Project (--project): .claude/settings.local.json in cwd.
 /// Preserves all non-dl hooks.
-pub fn uninstall() {
-    let path = settings_path();
+pub fn uninstall(project: bool) {
+    let path = if project {
+        project_settings_path()
+    } else {
+        global_settings_path()
+    };
 
     if !path.exists() {
         println!("No settings file found at {}", path.display());
