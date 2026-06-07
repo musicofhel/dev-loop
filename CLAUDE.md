@@ -1,5 +1,7 @@
 # dev-loop — Harness Rules
 
+> **Status: ARCHIVED** — All 7 TBs validated e2e (2026-03-30). No active development. Docker infra stopped 2026-06-07.
+
 ## Project Type
 Developer tooling harness. Not an app. Not a library. A composition of tools wired together with config, MCP servers, and thin glue code.
 
